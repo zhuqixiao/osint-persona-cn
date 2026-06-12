@@ -114,3 +114,18 @@ def test_feedback(client, tmp_path, monkeypatch):
     )
     assert r.status_code == 200
     assert "entry" in r.json()
+
+
+def test_run_detail_skips_list_artifacts(client, tmp_path, monkeypatch):
+    monkeypatch.setattr("osint_toolkit.services.runs.get_data_dir", lambda: tmp_path)
+    run_dir = tmp_path / "runs" / "20260101-120000-test1234"
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.json").write_text(
+        '{"run_id":"20260101-120000-test1234","command":"search","query":"x","steps":[]}',
+        encoding="utf-8",
+    )
+    (run_dir / "01_collect_all.json").write_text('{"step":"collect_all","status":"ok"}', encoding="utf-8")
+    (run_dir / "items_raw.json").write_text("[{}]", encoding="utf-8")
+    r = client.get("/api/runs/20260101-120000-test1234")
+    assert r.status_code == 200
+    assert len(r.json()["steps"]) == 1

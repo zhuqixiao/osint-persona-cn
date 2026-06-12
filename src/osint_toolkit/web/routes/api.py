@@ -181,12 +181,18 @@ async def api_ingest_browser(body: IngestBrowserRequest) -> dict[str, Any]:
 
 @router.post("/ingest/bilibili")
 async def api_ingest_bilibili() -> dict[str, Any]:
-    return ingest.ingest_bilibili()
+    from osint_toolkit.ingest.bilibili_account import ingest_history
+
+    rows = await ingest_history()
+    return {"count": len(rows), "rows": rows[:20]}
 
 
 @router.post("/ingest/zhihu")
 async def api_ingest_zhihu() -> dict[str, Any]:
-    return ingest.ingest_zhihu()
+    from osint_toolkit.ingest.zhihu_account import ingest_votes
+
+    rows = await ingest_votes()
+    return {"count": len(rows), "rows": rows[:20]}
 
 
 @router.get("/ingest/likes")

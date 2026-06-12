@@ -50,6 +50,8 @@ def list_run_steps(run_id: str) -> list[dict]:
             continue
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                continue
             data["_file"] = path.name
             steps.append(data)
         except json.JSONDecodeError:

@@ -70,12 +70,26 @@ class DeepSeekClient:
         }
 
 
+def _env_from_windows_user(name: str) -> str | None:
+    if os.name != "nt":
+        return None
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
+            value, _ = winreg.QueryValueEx(key, name)
+            return str(value).strip() or None
+    except OSError:
+        return None
+
+
 def resolve_api_key(explicit: str | None = None) -> str:
     """从参数、配置或环境变量解析 API Key。"""
     if explicit:
         return explicit
-    env_key = os.environ.get("DEEPSEEK_API_KEY")
+    env_key = os.environ.get("DEEPSEEK_API_KEY") or _env_from_windows_user("DEEPSEEK_API_KEY")
     if env_key:
+        os.environ.setdefault("DEEPSEEK_API_KEY", env_key)
         return env_key
     ai_cfg = get_ai_config()
     key = ai_cfg.get("api_key")
