@@ -3,7 +3,12 @@
 
 import pytest
 
-from osint_toolkit.ai.client import resolve_api_key
+from osint_toolkit.ai.client import _merge_extra_body, resolve_api_key
+
+
+def test_merge_extra_body_disables_thinking_for_v4():
+    merged = _merge_extra_body("deepseek-v4-flash", None)
+    assert merged == {"thinking": {"type": "disabled"}}
 
 
 def test_resolve_api_key_from_env(monkeypatch):
