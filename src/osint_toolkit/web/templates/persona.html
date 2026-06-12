@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}画像 — 个人情报工具{% endblock %}
+{% block content %}
+<h1>心智画像</h1>
+<p class="muted">画像来自导入行为与反馈，用于搜索时的 Persona 模拟。</p>
+<button id="btn-build-persona" class="btn">构建画像</button>
+<div id="persona-content" class="mt-1"></div>
+{% endblock %}
+{% block scripts %}
+<script>initPersona();</script>
+{% endblock %}

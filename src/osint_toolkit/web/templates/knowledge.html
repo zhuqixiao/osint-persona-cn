@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}知识库 — 个人情报工具{% endblock %}
+{% block content %}
+<h1>知识库</h1>
+<p class="muted">检索已收录内容，不触发多源采集。</p>
+
+<form id="knowledge-form" class="card">
+  <div class="grid-2">
+    <div class="form-row">
+      <label for="knowledge-query">搜索</label>
+      <input type="search" id="knowledge-query" placeholder="关键词…">
+    </div>
+    <div class="form-row">
+      <label for="knowledge-source">来源过滤</label>
+      <select id="knowledge-source">
+        <option value="">全部</option>
+        <option value="zhihu">zhihu</option>
+        <option value="bilibili">bilibili</option>
+        <option value="web">web</option>
+      </select>
+    </div>
+  </div>
+  <button type="submit" class="btn">检索</button>
+</form>
+
+<div id="knowledge-results" class="mt-1"></div>
+{% endblock %}
+{% block scripts %}
+<script>initKnowledge();</script>
+{% endblock %}

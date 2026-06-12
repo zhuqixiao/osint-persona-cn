@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}导入 — 个人情报工具{% endblock %}
+{% block content %}
+<h1>行为数据导入</h1>
+<p class="muted">导入后建议到画像页重新构建。</p>
+
+<div class="grid-2">
+  <div class="card">
+    <h2>浏览器历史</h2>
+    <p class="muted">从 Edge 浏览历史导入</p>
+    <div class="form-row">
+      <label for="browser-since">最近天数</label>
+      <input type="number" id="browser-since" value="90" min="1" max="365">
+    </div>
+    <button id="btn-ingest-browser" class="btn">导入</button>
+    <div id="ingest-browser-result" class="mt-1"></div>
+  </div>
+  <div class="card">
+    <h2>B站观看历史</h2>
+    <p class="muted">需要 bilibili Cookie</p>
+    <button id="btn-ingest-bilibili" class="btn">导入</button>
+    <div id="ingest-bilibili-result" class="mt-1"></div>
+  </div>
+  <div class="card">
+    <h2>知乎赞同</h2>
+    <p class="muted">需要 zhihu Cookie</p>
+    <button id="btn-ingest-zhihu" class="btn">导入</button>
+    <div id="ingest-zhihu-result" class="mt-1"></div>
+  </div>
+  <div class="card">
+    <h2>认可记录</h2>
+    <div id="likes-list" class="muted">加载中…</div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>initIngest();</script>
+{% endblock %}

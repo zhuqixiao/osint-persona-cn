@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}运行记录 — 个人情报工具{% endblock %}
+{% block content %}
+<h1>运行记录</h1>
+<p class="muted">Pipeline 每一步可审计、可展开。</p>
+<div id="runs-list"></div>
+{% endblock %}
+{% block scripts %}
+<script>initRuns();</script>
+{% endblock %}

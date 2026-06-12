@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}搜罗 — 个人情报工具{% endblock %}
+{% block content %}
+<h1>搜罗工作台</h1>
+<div id="auth-banner" class="alert alert-warn hidden"></div>
+<a id="run-link" class="btn btn-sm btn-secondary hidden" href="#">运行记录</a>
+
+<form id="search-form" class="card">
+  <div class="form-row">
+    <label for="search-query">搜索话题</label>
+    <input type="text" id="search-query" placeholder="输入你想了解的话题…" required>
+  </div>
+  <div class="grid-2">
+    <div class="form-row">
+      <label>来源</label>
+      <div class="checkbox-group">
+        {% for s in sources %}
+        <label><input type="checkbox" name="sources" value="{{ s }}" {% if s in ['zhihu','bilibili','web'] %}checked{% endif %}> {{ s }}</label>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="form-row">
+      <label for="search-profile">Profile</label>
+      <select id="search-profile">
+        {% for p in profiles %}
+        <option value="{{ p }}">{{ p }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+  <div class="form-row">
+    <label for="search-limit">每源条数</label>
+    <input type="number" id="search-limit" value="10" min="1" max="50">
+  </div>
+  <details class="mt-1">
+    <summary>高级选项</summary>
+    <div class="checkbox-group mt-1">
+      <label><input type="checkbox" id="opt-digest"> 生成情报报告</label>
+      <label><input type="checkbox" id="opt-trace" checked> 记录运行轨迹</label>
+      <label><input type="checkbox" id="opt-no-ai"> 跳过 AI</label>
+      <label><input type="checkbox" id="opt-no-simulate"> 跳过 Persona 模拟</label>
+    </div>
+    <div class="checkbox-group mt-1">
+      <label>禁用 AI 步骤:</label>
+      <label><input type="checkbox" name="no-ai-step" value="ai_summarize"> summarize</label>
+      <label><input type="checkbox" name="no-ai-step" value="persona_simulate"> persona_simulate</label>
+    </div>
+    <div class="form-row mt-1">
+      <label for="deep-top">B站深度评论数</label>
+      <input type="number" id="deep-top" value="0" min="0" max="10">
+    </div>
+    <div class="form-row">
+      <label for="ai-instruct">本次 AI 补充指令</label>
+      <textarea id="ai-instruct" placeholder="例如：只关注实操案例"></textarea>
+    </div>
+  </details>
+  <button type="submit" class="btn mt-1">开始搜罗</button>
+</form>
+
+<div id="steps-bar" class="steps-bar"></div>
+
+<div class="grid-2">
+  <div>
+    <h2>搜索结果</h2>
+    <div id="search-results"></div>
+  </div>
+  <div>
+    <h2>情报报告</h2>
+    <div id="report-panel" class="card markdown-body"></div>
+    <div id="ask-section" class="card mt-1">
+      <h2>基于此报告追问</h2>
+      <div id="ask-history"></div>
+      <form id="ask-form" class="mt-1">
+        <input type="text" id="ask-question" placeholder="输入追问…">
+        <button type="submit" class="btn btn-sm mt-1">发送</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>initWorkspace({{ profiles | tojson }}, {{ sources | tojson }});</script>
+{% endblock %}

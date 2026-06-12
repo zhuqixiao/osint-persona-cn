@@ -90,6 +90,7 @@ async def run_search(
     no_simulate: bool = False,
     disabled_ai_steps: list[str] | None = None,
     deep_top: int = 0,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     cfg = load_config()
     profiles = cfg.get("profiles", {})
@@ -101,17 +102,20 @@ async def run_search(
         except Exception:  # noqa: BLE001
             pass
 
-    ctx = RunContext(
-        command="search",
-        query=query,
-        profile=profile,
-        sources=sources,
-        trace=trace,
-        ai_instruct=ai_instruct,
-        no_ai=no_ai,
-        no_simulate=no_simulate,
-        disabled_ai_steps=disabled_ai_steps or [],
-    )
+    ctx_kwargs: dict[str, Any] = {
+        "command": "search",
+        "query": query,
+        "profile": profile,
+        "sources": sources,
+        "trace": trace,
+        "ai_instruct": ai_instruct,
+        "no_ai": no_ai,
+        "no_simulate": no_simulate,
+        "disabled_ai_steps": disabled_ai_steps or [],
+    }
+    if run_id:
+        ctx_kwargs["run_id"] = run_id
+    ctx = RunContext(**ctx_kwargs)
     runner = PipelineRunner(ctx)
 
     async def collect_all() -> list[IntelItem]:

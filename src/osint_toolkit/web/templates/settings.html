@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}设置 — 个人情报工具{% endblock %}
+{% block content %}
+<h1>设置</h1>
+
+<h2>连接状态</h2>
+<div id="auth-status" class="card">加载中…</div>
+
+<h2>同步 Cookie</h2>
+<div class="card">
+  <p class="muted">从 Edge 同步 Cookie（建议先关闭浏览器）</p>
+  <button id="btn-sync-cookies" class="btn">同步 Cookie</button>
+  <div id="sync-result" class="mt-1"></div>
+</div>
+
+<h2>路径信息</h2>
+<div id="paths-info" class="card muted">加载中…</div>
+
+<details class="mt-1">
+  <summary>高级工具：域名 DNS 查询</summary>
+  <div class="card mt-1">
+    <input type="text" id="domain-input" placeholder="example.com">
+    <button id="btn-domain-lookup" class="btn btn-sm mt-1">查询</button>
+    <div id="domain-result" class="mt-1"></div>
+  </div>
+</details>
+{% endblock %}
+{% block scripts %}
+<script>initSettings();</script>
+{% endblock %}

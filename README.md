@@ -11,6 +11,7 @@
 - **收录与知识库**: `save` / `recall`
 - **行为导入**: 浏览器历史、B站观看、知乎赞同
 - **Persona**: 心智画像构建与回滚
+- **Web 控制台**: `osint web` 本机网页，与 CLI 功能对等
 
 ## 安装
 
@@ -20,7 +21,18 @@ cd gochj
 python -m venv .venv
 .venv\Scripts\activate   # Windows
 pip install -e ".[dev]"
+# Web 控制台（可选）
+pip install -e ".[dev,web]"
 ```
+
+## Web 控制台
+
+```bash
+osint web
+# 浏览器打开 http://127.0.0.1:8787
+```
+
+详见 [docs/WEB_UI.md](docs/WEB_UI.md)。
 
 ## 配置 API Key
 

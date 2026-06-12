@@ -8,7 +8,7 @@ from typing import Any
 from osint_toolkit.ai.client import DeepSeekClient
 from osint_toolkit.feedback.store import FeedbackStore
 from osint_toolkit.persona.store import load_mental_model, save_mental_model, save_persona_brief
-from osint_toolkit.storage.knowledge import connect
+from osint_toolkit.storage.sqlite import connect
 
 
 def build_persona_draft(*, use_ai: bool = True) -> dict[str, Any]:
