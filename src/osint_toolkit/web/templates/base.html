@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}个人情报工具{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        个人情报
+        <span class="brand-sub">本地 OSINT 工作台</span>
+      </div>
+      <nav>
+        {% for group in nav_groups %}
+        <div class="nav-group">
+          <div class="nav-group-label">{{ group.label }}</div>
+          {% for item in group.links %}
+          <a href="{{ item.href }}" class="nav-item{% if active == item.id %} active{% endif %}">{{ item.label }}</a>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </nav>
+      <div class="sidebar-footer">
+        <div id="sidebar-extension-chip" class="sidebar-chip">扩展检测中…</div>
+        <div id="sidebar-setup-chip" class="sidebar-chip hidden"></div>
+        <div class="sidebar-footnote">数据仅存于本机 ~/.osint</div>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="content">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+  <script>initGlobalSidebar();</script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

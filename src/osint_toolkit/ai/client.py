@@ -14,6 +14,24 @@ DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_MODEL = "deepseek-v4-flash"
 
 
+def _default_extra_body(model: str) -> dict[str, Any] | None:
+    """V4 默认 thinking 会占满 max_tokens，导致 content 为空；OSINT 任务用非 thinking。"""
+    if model.startswith("deepseek-v4") or model in {"deepseek-chat", "deepseek-reasoner"}:
+        return {"thinking": {"type": "disabled"}}
+    return None
+
+
+def _merge_extra_body(model: str, extra_body: dict[str, Any] | None) -> dict[str, Any] | None:
+    default = _default_extra_body(model)
+    if not default:
+        return extra_body
+    if not extra_body:
+        return default
+    merged = dict(default)
+    merged.update(extra_body)
+    return merged
+
+
 @dataclass
 class AIClientConfig:
     api_key: str
@@ -42,8 +60,12 @@ class DeepSeekClient:
         **kwargs: Any,
     ) -> str:
         """发送对话请求并返回 assistant 文本内容。"""
+        model = model or self.config.model
+        extra_body = _merge_extra_body(model, kwargs.pop("extra_body", None))
+        if extra_body is not None:
+            kwargs["extra_body"] = extra_body
         response = self._client.chat.completions.create(
-            model=model or self.config.model,
+            model=model,
             messages=messages,
             stream=stream,
             **kwargs,
@@ -60,22 +82,37 @@ class DeepSeekClient:
                 {"role": "system", "content": "Reply with exactly: ok"},
                 {"role": "user", "content": "ping"},
             ],
-            max_tokens=8,
+            max_tokens=32,
         )
+        text = content.strip()
         return {
-            "ok": "ok" in content.lower(),
+            "ok": bool(text),
             "model": self.config.model,
             "base_url": self.config.base_url,
-            "reply": content.strip(),
+            "reply": text,
         }
+
+
+def _env_from_windows_user(name: str) -> str | None:
+    if os.name != "nt":
+        return None
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
+            value, _ = winreg.QueryValueEx(key, name)
+            return str(value).strip() or None
+    except OSError:
+        return None
 
 
 def resolve_api_key(explicit: str | None = None) -> str:
     """从参数、配置或环境变量解析 API Key。"""
     if explicit:
         return explicit
-    env_key = os.environ.get("DEEPSEEK_API_KEY")
+    env_key = os.environ.get("DEEPSEEK_API_KEY") or _env_from_windows_user("DEEPSEEK_API_KEY")
     if env_key:
+        os.environ.setdefault("DEEPSEEK_API_KEY", env_key)
         return env_key
     ai_cfg = get_ai_config()
     key = ai_cfg.get("api_key")
