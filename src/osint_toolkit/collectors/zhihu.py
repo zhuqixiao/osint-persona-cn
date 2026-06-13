@@ -12,6 +12,7 @@ from osint_toolkit.http.client import HttpClient
 from osint_toolkit.models.intel_item import IntelItem, IntelMetrics
 from osint_toolkit.processors.normalize import html_to_text
 from osint_toolkit.utils.config import get_search_config
+from osint_toolkit.utils.zhihu_urls import public_zhihu_url
 
 _QUESTION_URL = re.compile(r"/question/(\d+)")
 _ANSWER_URL = re.compile(r"/question/\d+/answer/(\d+)")
@@ -401,7 +402,7 @@ class ZhihuCollector(BaseCollector):
             return IntelItem(
                 source="zhihu",
                 type=otype,
-                url=obj.get("url", ""),
+                url=public_zhihu_url(str(obj.get("url") or ""), obj),
                 title=obj.get("title", ""),
                 content=html_to_text(obj.get("excerpt", "") or ""),
                 author=obj.get("author", {}).get("name", ""),
@@ -412,7 +413,7 @@ class ZhihuCollector(BaseCollector):
             return IntelItem(
                 source="zhihu",
                 type="content",
-                url=obj.get("url", ""),
+                url=public_zhihu_url(str(obj.get("url") or ""), obj),
                 title=title,
                 content=html_to_text(obj.get("excerpt", "") or ""),
             )

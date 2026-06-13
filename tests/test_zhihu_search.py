@@ -27,6 +27,21 @@ def test_parse_question_object():
     assert item.title == "如何学习 Python？"
 
 
+def test_parse_article_object_uses_public_url():
+    col = ZhihuCollector(client=MagicMock())
+    item = col._parse_object(
+        {
+            "type": "article",
+            "id": 2049151623004413971,
+            "title": "测试专栏",
+            "url": "https://api.zhihu.com/articles/2049151623004413971",
+            "excerpt": "摘要",
+        }
+    )
+    assert item is not None
+    assert item.url == "https://zhuanlan.zhihu.com/p/2049151623004413971"
+
+
 def test_question_id_from_ref_includes_answer_url():
     assert ZhihuCollector.question_id_from_ref("https://www.zhihu.com/question/99/answer/1") == "99"
 

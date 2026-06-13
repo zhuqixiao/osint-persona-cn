@@ -10,13 +10,14 @@ from osint_toolkit.ai.prompt_loader import load_prompt
 from osint_toolkit.ai.steering import build_system_prompt, is_step_enabled
 from osint_toolkit.analyzers.cluster import cluster_items
 from osint_toolkit.models.intel_item import IntelItem
+from osint_toolkit.utils.zhihu_urls import public_zhihu_url
 
 
 def _fallback_report(query: str, items: list[IntelItem], run_id: str) -> str:
     lines = [f"# 情报报告: {query}", "", "## 执行摘要", f"- 共采集 {len(items)} 条情报", ""]
     for item in items[:10]:
         lines.append(f"### [{item.source}] {item.title}")
-        lines.append(f"- URL: {item.url}")
+        lines.append(f"- URL: {public_zhihu_url(item.url)}")
         lines.append(f"- 摘要: {item.summary or item.content[:200]}")
         if item.layers.get("comments_summary"):
             lines.append(f"- 社区观点: {item.layers['comments_summary'][:300]}")
@@ -50,7 +51,7 @@ def generate_report(
                 "items": [
                     {
                         "title": i.title,
-                        "url": i.url,
+                        "url": public_zhihu_url(i.url) if i.source == "zhihu" else i.url,
                         "summary": i.summary,
                         "comments_summary": i.layers.get("comments_summary") or "",
                         "signals": i.signals.model_dump(),

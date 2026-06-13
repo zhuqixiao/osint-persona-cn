@@ -50,12 +50,15 @@ def _video_url(item: dict) -> str:
     return item.get("link") or item.get("uri") or ""
 
 
+from osint_toolkit.utils.zhihu_urls import public_zhihu_url
+
+
 def _zhihu_content_url(target: dict, item: dict | None = None) -> str:
     item = item or {}
     target = target or {}
     url = target.get("url") or item.get("url") or ""
     if url.startswith("http"):
-        return url
+        return public_zhihu_url(str(url), target)
     question = target.get("question") or {}
     answer_id = target.get("id")
     qid = question.get("id")

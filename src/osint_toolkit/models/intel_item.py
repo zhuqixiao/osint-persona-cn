@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from osint_toolkit.utils.zhihu_urls import public_zhihu_url
+
 
 class IntelMetrics(BaseModel):
     likes: int = 0
@@ -41,7 +43,10 @@ class IntelItem(BaseModel):
     personal: dict[str, Any] = Field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return self.model_dump()
+        data = self.model_dump()
+        if data.get("source") == "zhihu" and data.get("url"):
+            data["url"] = public_zhihu_url(data["url"])
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> IntelItem:
