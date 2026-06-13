@@ -57,6 +57,12 @@ CAPABILITIES: list[dict[str, Any]] = [
         "note": "扩展拦截 reply/action 增量，无历史列表",
     },
     {
+        "platform": "weixin",
+        "behavior": "微信文章搜索",
+        "status": "supported",
+        "note": "仅搜罗源（搜狗微信），无行为导入；见 search.weixin 配置",
+    },
+    {
         "platform": "bilibili",
         "behavior": "视频字幕/弹幕",
         "status": "supported",

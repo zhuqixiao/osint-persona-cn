@@ -4,7 +4,7 @@
 
 ## 功能
 
-- **多源搜索**: 知乎、B站、Web、V2EX、RSS
+- **多源搜索**: 知乎、B站、微信（搜狗）、Web、V2EX、RSS
 - **AI 情报报告**: DeepSeek V4 Flash，`--digest`
 - **流程透明**: `--trace`，`osint run show <run_id>`
 - **AI 可控**: `ai_directives`、用户 prompt 覆盖、`--ai-instruct`
@@ -51,11 +51,13 @@ PowerShell:
 ```bash
 osint auth sync-cookies --browser edge
 osint auth test --target all
+osint sync                    # 一键完整同步（推荐）
 osint search "MCP协议" --sources zhihu,bilibili,web --trace
 osint search "MCP协议" --digest --profile research
 osint save "https://www.zhihu.com/question/..." --with-comments
 osint recall "MCP"
 osint persona build --review
+osint doctor                  # 系统诊断
 osint run list
 ```
 

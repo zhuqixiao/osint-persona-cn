@@ -36,7 +36,7 @@ def _nav_context(active: str) -> dict:
             {
                 "label": "画像",
                 "links": [
-                    {"id": "ingest", "label": "扩展与导入", "href": "/ingest"},
+                    {"id": "ingest", "label": "行为同步", "href": "/ingest"},
                     {"id": "behavior", "label": "行为时间线", "href": "/behavior"},
                     {"id": "persona", "label": "心智画像", "href": "/persona"},
                 ],

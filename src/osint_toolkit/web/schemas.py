@@ -14,7 +14,7 @@ class SearchRequest(BaseModel):
     sources: list[str] = Field(default_factory=lambda: list(DEFAULT_SEARCH_SOURCES))
     limit: int = 10
     digest: bool = False
-    trace: bool = True
+    trace: bool = False
     profile: str = "default"
     ai_instruct: str = ""
     no_ai: bool = False

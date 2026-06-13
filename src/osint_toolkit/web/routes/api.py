@@ -272,6 +272,13 @@ async def api_setup_status() -> dict[str, Any]:
     return setup.get_setup_status()
 
 
+@router.get("/setup/operations")
+async def api_setup_operations() -> dict[str, Any]:
+    from osint_toolkit.services import ops
+
+    return ops.get_operations_runbook()
+
+
 @router.get("/setup/sync-config")
 async def api_setup_sync_config() -> dict[str, Any]:
     return load_sync_config()

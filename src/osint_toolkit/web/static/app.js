@@ -1226,7 +1226,7 @@ async function runIngest(type, body, resultId) {
     if (data.ok === false && data.error) {
       el.className = "alert alert-error";
       const errMap = {
-        aicu_disabled: "请先在 config 中设置 ingest.aicu_enabled: true",
+        aicu_disabled: "请先在 config 中设置 sync.aicu_enabled: true（或 ingest.aicu_enabled）",
         bilibili_not_logged_in: "需要有效的 B 站 Cookie（仅用于获取 UID）",
         aicu_waf_blocked: "AICU 拦截了程序访问：请用扩展「浏览器拉取 AICU 发评」或粘贴 JSON",
         aicu_json_empty: "JSON 中未找到 replies 数据",
@@ -1393,6 +1393,7 @@ async function resetPrompt() {
 
 /* 设置 */
 function initSettings() {
+  loadOperationsRunbook();
   loadAuthStatus();
   loadPaths();
   document.getElementById("btn-sync-cookies")?.addEventListener("click", syncCookies);
@@ -1403,6 +1404,25 @@ function initSettings() {
     const text = pre.textContent.replace(/&amp;/g, "&");
     navigator.clipboard.writeText(text).then(() => alert("已复制 Edge CDP 启动命令"));
   });
+}
+
+async function loadOperationsRunbook() {
+  const el = document.getElementById("ops-runbook");
+  if (!el) return;
+  try {
+    const data = await api("GET", "/api/setup/operations");
+    const steps = (data.recommended || []).map((s) => {
+      const parts = [];
+      if (s.cli) parts.push(`CLI: <code>${escapeHtml(s.cli)}</code>`);
+      if (s.web) parts.push(escapeHtml(s.web));
+      if (s.note) parts.push(`<span class="muted">${escapeHtml(s.note)}</span>`);
+      return `<li><strong>${s.step}. ${escapeHtml(s.title)}</strong> — ${parts.join(" · ")}</li>`;
+    }).join("");
+    const tagline = data.tagline ? `<p class="muted">${escapeHtml(data.tagline)}</p>` : "";
+    el.innerHTML = `${tagline}<ol class="install-steps">${steps}</ol>`;
+  } catch (err) {
+    el.textContent = err.message;
+  }
 }
 
 async function loadAuthStatus() {

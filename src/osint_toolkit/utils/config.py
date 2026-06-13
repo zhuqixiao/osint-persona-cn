@@ -273,7 +273,13 @@ def load_sync_config() -> dict[str, Any]:
     for key, val in legacy_map.items():
         if val is not None and key not in sync:
             sync[key] = val
+    # aicu：sync 与 ingest 任一为 true 即启用
+    sync["aicu_enabled"] = bool(sync.get("aicu_enabled", False) or ingest.get("aicu_enabled", False))
     return sync
+
+
+def get_aicu_enabled() -> bool:
+    return bool(load_sync_config().get("aicu_enabled", False))
 
 
 def get_browser_sync_config() -> dict[str, Any]:
