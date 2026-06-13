@@ -279,6 +279,59 @@ def test_parse_video_uses_tags_when_no_desc():
 
 
 @pytest.mark.asyncio
+async def test_fetch_subtitle_for_aid_cid_uses_wbi_player(monkeypatch):
+    async def fake_wbi_get(_client, base, params):
+        assert "player/wbi/v2" in base
+        assert params["aid"] == 111 and params["cid"] == 222
+        return {
+            "code": 0,
+            "data": {
+                "subtitle": {
+                    "subtitles": [
+                        {
+                            "lan_doc": "中文（自动生成）",
+                            "subtitle_url_v2": "//subtitle.example.com/sub.json",
+                            "ai_status": 2,
+                        }
+                    ]
+                }
+            },
+        }
+
+    async def fake_download(url):
+        assert "subtitle.example.com/sub.json" in url
+        return "AI字幕正文"
+
+    monkeypatch.setattr("osint_toolkit.ingest.bilibili_wbi.wbi_get", fake_wbi_get)
+    monkeypatch.setattr(bilibili_sdk, "_download_subtitle_text", fake_download)
+
+    result = await bilibili_sdk.fetch_subtitle_for_aid_cid(111, 222)
+    assert result["text"] == "AI字幕正文"
+    assert result["source"] == "wbi_player"
+    assert bilibili_sdk._track_label(result["track"]) == "ai"
+
+
+@pytest.mark.asyncio
+async def test_fetch_video_meta_ignores_placeholder_desc():
+    class FakeResp:
+        def json(self):
+            return {"code": 0, "data": {"title": "t", "desc": "-", "owner": {"name": "up"}}}
+
+    class FakeClient:
+        async def get(self, url: str):
+            return FakeResp()
+
+    meta = await bilibili_sdk.fetch_video_meta("https://www.bilibili.com/video/BVdash", client=FakeClient())
+    assert meta["desc"] == ""
+
+
+def test_needs_subtitle_fallback_for_weak_desc():
+    assert BilibiliCollector._needs_subtitle_fallback("-") is True
+    assert BilibiliCollector._needs_subtitle_fallback("标签: Qwen") is True
+    assert BilibiliCollector._needs_subtitle_fallback("完整简介") is False
+
+
+@pytest.mark.asyncio
 async def test_fetch_subtitle_for_url_uses_matched_aid_cid(monkeypatch):
     monkeypatch.setattr(bilibili_sdk, "sdk_installed", lambda: False)
 

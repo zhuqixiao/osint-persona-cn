@@ -571,6 +571,21 @@ def _subtitle_tracks_from_payload(payload: dict) -> list[dict]:
     return []
 
 
+def _track_subtitle_url(track: dict) -> str:
+    for key in ("subtitle_url", "subtitle_url_v2", "url"):
+        value = str(track.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _normalize_video_desc(desc: str) -> str:
+    text = (desc or "").strip()
+    if len(text) <= 2 or text in {"-", "—", ".", "无", "暂无简介", "暂无"}:
+        return ""
+    return text
+
+
 _VIEW_API = "https://api.bilibili.com/x/web-interface/view"
 
 
@@ -631,7 +646,9 @@ async def fetch_video_meta(url: str, *, client=None) -> dict[str, Any]:
     owner = data.get("owner") or {}
     return {
         "title": str(data.get("title") or ""),
-        "desc": html_to_text(str(data.get("desc") or data.get("description") or "")),
+        "desc": _normalize_video_desc(
+            html_to_text(str(data.get("desc") or data.get("description") or ""))
+        ),
         "author": str(owner.get("name") or ""),
     }
 
@@ -642,23 +659,39 @@ async def fetch_subtitle_for_aid_cid(
     *,
     client=None,
 ) -> dict[str, Any]:
-    """用匹配的 aid/cid 拉取 player 字幕轨。"""
+    """用匹配的 aid/cid 拉取 player 字幕轨（优先 WBI player API）。"""
     from osint_toolkit.http.client import HttpClient
+    from osint_toolkit.ingest.bilibili_wbi import wbi_get
     from osint_toolkit.processors.subtitle import pick_subtitle_track
 
     http = client or HttpClient()
-    player_url = f"https://api.bilibili.com/x/player/v2?aid={aid}&cid={cid}"
-    resp = await http.get(player_url)
-    data = resp.json().get("data") or {}
-    tracks = _subtitle_tracks_from_payload(data.get("subtitle") or {})
-    track = pick_subtitle_track(tracks)
-    if not track:
-        return {"text": "", "track": None, "source": "view_api", "aid": aid, "cid": cid}
-    sub_url = track.get("subtitle_url") or track.get("url") or ""
-    if not sub_url:
-        return {"text": "", "track": track, "source": "view_api", "aid": aid, "cid": cid}
-    text = await _download_subtitle_text(sub_url)
-    return {"text": text, "track": track, "source": "view_api", "aid": aid, "cid": cid}
+    params = {"aid": aid, "cid": cid}
+    attempts: list[tuple[str, Any]] = [
+        ("wbi_player", None),
+        ("view_api", None),
+    ]
+
+    for source, _ in attempts:
+        try:
+            if source == "wbi_player":
+                payload = await wbi_get(http, "https://api.bilibili.com/x/player/wbi/v2", params)
+            else:
+                resp = await http.get(f"https://api.bilibili.com/x/player/v2?aid={aid}&cid={cid}")
+                payload = resp.json()
+            data = payload.get("data") or {}
+            tracks = _subtitle_tracks_from_payload(data.get("subtitle") or {})
+            track = pick_subtitle_track(tracks)
+            if not track:
+                continue
+            sub_url = _track_subtitle_url(track)
+            if not sub_url:
+                continue
+            text = await _download_subtitle_text(sub_url)
+            return {"text": text, "track": track, "source": source, "aid": aid, "cid": cid}
+        except Exception:  # noqa: BLE001
+            continue
+
+    return {"text": "", "track": None, "source": "view_api", "aid": aid, "cid": cid}
 
 
 async def fetch_subtitle_for_url(url: str) -> dict[str, Any]:
@@ -674,7 +707,7 @@ async def fetch_subtitle_for_url(url: str) -> dict[str, Any]:
             track = pick_subtitle_track(tracks)
             if not track:
                 return {"text": "", "track": None, "source": "sdk"}
-            sub_url = track.get("subtitle_url") or track.get("url") or ""
+            sub_url = track.get("subtitle_url") or track.get("subtitle_url_v2") or track.get("url") or ""
             if not sub_url:
                 return {"text": "", "track": track, "source": "sdk"}
             text = await _download_subtitle_text(sub_url)
@@ -715,6 +748,10 @@ def _track_label(track: dict | None) -> str:
     if not track:
         return "unknown"
     lan_doc = str(track.get("lan_doc") or track.get("lan") or "")
+    if track.get("ai_type") in (1, "1") or track.get("ai_status") in (1, 2, "1", "2"):
+        return "ai"
+    if str(track.get("lan") or "").lower().startswith("ai-"):
+        return "ai"
     if any(k in lan_doc for k in ("自动", "AI", "ai", "机翻", "智能")):
         return "ai"
     return "cc"

@@ -73,7 +73,11 @@ class BilibiliCollector(BaseCollector):
     @staticmethod
     def _needs_subtitle_fallback(content: str) -> bool:
         text = (content or "").strip()
-        return not text or text.startswith("标签:")
+        if text.startswith("标签:"):
+            return True
+        if len(text) <= 2 or text in {"-", "—", ".", "无", "暂无简介", "暂无"}:
+            return True
+        return not text
 
     async def _apply_subtitle_from_url(self, item: IntelItem) -> None:
         from osint_toolkit.ingest import bilibili_sdk
