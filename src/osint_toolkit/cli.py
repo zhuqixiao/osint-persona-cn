@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.table import Table
 
 from osint_toolkit.ai.steering import directives_path
+from osint_toolkit.collectors.registry import DEFAULT_SEARCH_SOURCES
 from osint_toolkit.services import ai_config, auth, digest, feedback, ingest, knowledge, persona, runs, tools
 from osint_toolkit.services import save as save_svc
 from osint_toolkit.services import search as search_svc
@@ -144,7 +145,7 @@ def ai_prompts_reset(name: str) -> None:
 
 @main.command("search")
 @click.argument("query")
-@click.option("--sources", default="zhihu,bilibili,web")
+@click.option("--sources", default=",".join(DEFAULT_SEARCH_SOURCES))
 @click.option("--limit", default=10, type=int)
 @click.option("--digest", is_flag=True)
 @click.option("--trace", is_flag=True)

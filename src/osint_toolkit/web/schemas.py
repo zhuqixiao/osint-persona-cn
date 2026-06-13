@@ -6,10 +6,12 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from osint_toolkit.collectors.registry import DEFAULT_SEARCH_SOURCES
+
 
 class SearchRequest(BaseModel):
     query: str
-    sources: list[str] = Field(default_factory=lambda: ["zhihu", "bilibili", "web"])
+    sources: list[str] = Field(default_factory=lambda: list(DEFAULT_SEARCH_SOURCES))
     limit: int = 10
     digest: bool = False
     trace: bool = True
@@ -26,7 +28,7 @@ class SearchRequest(BaseModel):
 
 class SearchExpandRequest(BaseModel):
     query: str
-    sources: list[str] = Field(default_factory=lambda: ["zhihu", "bilibili", "web"])
+    sources: list[str] = Field(default_factory=lambda: list(DEFAULT_SEARCH_SOURCES))
     no_ai: bool = False
     include_slurs: bool | None = None
 

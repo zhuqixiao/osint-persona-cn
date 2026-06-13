@@ -102,7 +102,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "comment_mine_top": 3,
         "discover_aliases": True,
         "discover_probe_limit": 5,
-        "discover_sources": ["bilibili", "zhihu", "web", "v2ex"],
+        "discover_sources": ["bilibili", "zhihu", "web", "v2ex", "weixin"],
         "persist_discovered_aliases": True,
         "serp": {
             "primary": "auto",

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from urllib.parse import quote
 from typing import Any
+from urllib.parse import quote
 
 from osint_toolkit.ingest.playwright_session import run_with_cookie_page
 
