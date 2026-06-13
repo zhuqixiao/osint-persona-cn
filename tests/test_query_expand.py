@@ -66,6 +66,18 @@ def test_expand_query_no_ai_merges_rules(tmp_path, monkeypatch):
     assert len(queries) >= 2
 
 
-def test_per_query_limit_scales():
+def test_per_query_limit_scales(monkeypatch):
+    monkeypatch.setattr(
+        "osint_toolkit.ai.query_expand.get_search_config",
+        lambda: {"per_query_limit_ratio": 0.6, "zhihu_aggressive": False},
+    )
     assert per_query_limit(10, 3) >= 3
     assert per_query_limit(10, 1) == 6
+
+
+def test_per_query_limit_aggressive_floor(monkeypatch):
+    monkeypatch.setattr(
+        "osint_toolkit.ai.query_expand.get_search_config",
+        lambda: {"per_query_limit_ratio": 0.6, "zhihu_aggressive": True, "zhihu_per_query_limit_min": 20},
+    )
+    assert per_query_limit(10, 1) == 20
