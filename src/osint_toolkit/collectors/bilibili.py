@@ -250,37 +250,31 @@ class BilibiliCollector(BaseCollector):
                 return
             except Exception:  # noqa: BLE001
                 pass
-        if page_html is None:
-            page_html = await self.client.get_text(item.url)
-        subtitle = await self._fetch_subtitle_legacy(page_html)
-        if subtitle:
-            item.layers["subtitle"] = {"text": subtitle, "kind": "legacy", "source": "legacy"}
-            item.content = (str(item.content or "").strip() + "\n\n[字幕]\n" + subtitle).strip()[:16000]
+        subtitle_result = await bilibili_sdk.fetch_subtitle_for_url(item.url)
+        text = str(subtitle_result.get("text") or "").strip()
+        if text:
+            track = subtitle_result.get("track")
+            kind = "legacy"
+            if isinstance(track, dict):
+                from osint_toolkit.ingest.bilibili_sdk import _track_label
+
+                kind = _track_label(track)
+            item.layers["subtitle"] = {
+                "text": text,
+                "kind": kind,
+                "source": subtitle_result.get("source"),
+                "aid": subtitle_result.get("aid"),
+                "cid": subtitle_result.get("cid"),
+            }
+            if text not in (item.content or ""):
+                item.content = (
+                    str(item.content or "").strip() + f"\n\n[字幕:{kind}]\n{text}"
+                ).strip()[:16000]
 
     async def _fetch_subtitle_legacy(self, page_html: str) -> str:
-        from osint_toolkit.processors.subtitle import pick_subtitle_track, parse_subtitle_json
-
-        aid_match = re.search(r'"aid":(\d+)', page_html)
-        cid_match = re.search(r'"cid":(\d+)', page_html)
-        if not aid_match or not cid_match:
-            return ""
-        player_url = (
-            f"https://api.bilibili.com/x/player/v2?aid={aid_match.group(1)}&cid={cid_match.group(1)}"
-        )
-        try:
-            resp = await self.client.get(player_url)
-            data = resp.json().get("data", {})
-            tracks = (data.get("subtitle") or {}).get("subtitles") or []
-            track = pick_subtitle_track(tracks)
-            if not track:
-                return ""
-            sub_url = track.get("subtitle_url", "")
-            if sub_url.startswith("//"):
-                sub_url = "https:" + sub_url
-            body = await self.client.get_text(sub_url)
-            return parse_subtitle_json(body)
-        except Exception:  # noqa: BLE001
-            return ""
+        """Deprecated: page_html 不再用于解析 aid/cid。"""
+        _ = page_html
+        return ""
 
     async def _fetch_subtitle(self, page_html: str) -> str:
         return await self._fetch_subtitle_legacy(page_html)
@@ -388,9 +382,10 @@ class BilibiliCollector(BaseCollector):
         elif (opus := re.search(r"/opus/(\d+)", url)):
             oid = opus.group(1)
         elif "BV" in url:
-            text = await self.client.get_text(url)
-            aid_match = re.search(r'"aid":(\d+)', text)
-            oid = aid_match.group(1) if aid_match else None
+            from osint_toolkit.ingest import bilibili_sdk
+
+            aid, _cid = await bilibili_sdk.resolve_video_aid_cid(url, client=self.client)
+            oid = str(aid) if aid else None
         else:
             av = re.search(r"av(\d+)", url)
             oid = av.group(1) if av else None

@@ -571,6 +571,71 @@ def _subtitle_tracks_from_payload(payload: dict) -> list[dict]:
     return []
 
 
+_VIEW_API = "https://api.bilibili.com/x/web-interface/view"
+
+
+async def resolve_video_aid_cid(
+    url: str,
+    *,
+    page_index: int = 0,
+    client=None,
+) -> tuple[int | None, int | None]:
+    """从视频 URL 解析 aid/cid（公开 view API），避免误用页面 HTML 里第一个 aid/cid。"""
+    from osint_toolkit.http.client import HttpClient
+
+    bvid, aid = parse_video_ref(url)
+    http = client or HttpClient()
+    if bvid:
+        resp = await http.get(f"{_VIEW_API}?bvid={bvid}")
+    elif aid:
+        resp = await http.get(f"{_VIEW_API}?aid={aid}")
+    else:
+        return None, None
+    payload = resp.json()
+    if payload.get("code") not in (0, None):
+        return None, None
+    data = payload.get("data") or {}
+    resolved_aid = data.get("aid") or aid
+    pages = data.get("pages") or []
+    cid = None
+    if pages:
+        idx = min(max(page_index, 0), len(pages) - 1)
+        cid = pages[idx].get("cid")
+    if not cid:
+        cid = data.get("cid")
+    try:
+        aid_int = int(resolved_aid) if resolved_aid is not None else None
+        cid_int = int(cid) if cid is not None else None
+    except (TypeError, ValueError):
+        return None, None
+    return aid_int, cid_int
+
+
+async def fetch_subtitle_for_aid_cid(
+    aid: int,
+    cid: int,
+    *,
+    client=None,
+) -> dict[str, Any]:
+    """用匹配的 aid/cid 拉取 player 字幕轨。"""
+    from osint_toolkit.http.client import HttpClient
+    from osint_toolkit.processors.subtitle import pick_subtitle_track
+
+    http = client or HttpClient()
+    player_url = f"https://api.bilibili.com/x/player/v2?aid={aid}&cid={cid}"
+    resp = await http.get(player_url)
+    data = resp.json().get("data") or {}
+    tracks = _subtitle_tracks_from_payload(data.get("subtitle") or {})
+    track = pick_subtitle_track(tracks)
+    if not track:
+        return {"text": "", "track": None, "source": "view_api", "aid": aid, "cid": cid}
+    sub_url = track.get("subtitle_url") or track.get("url") or ""
+    if not sub_url:
+        return {"text": "", "track": track, "source": "view_api", "aid": aid, "cid": cid}
+    text = await _download_subtitle_text(sub_url)
+    return {"text": text, "track": track, "source": "view_api", "aid": aid, "cid": cid}
+
+
 async def fetch_subtitle_for_url(url: str) -> dict[str, Any]:
     """拉取视频字幕，返回 text / track / source。"""
     from osint_toolkit.processors.subtitle import pick_subtitle_track
@@ -595,25 +660,10 @@ async def fetch_subtitle_for_url(url: str) -> dict[str, Any]:
     from osint_toolkit.http.client import HttpClient
 
     client = HttpClient()
-    page_html = await client.get_text(url)
-    aid_match = re.search(r'"aid":(\d+)', page_html)
-    cid_match = re.search(r'"cid":(\d+)', page_html)
-    if not aid_match or not cid_match:
-        return {"text": "", "track": None, "source": "legacy"}
-    player_url = (
-        f"https://api.bilibili.com/x/player/v2?aid={aid_match.group(1)}&cid={cid_match.group(1)}"
-    )
-    resp = await client.get(player_url)
-    data = resp.json().get("data") or {}
-    tracks = _subtitle_tracks_from_payload(data.get("subtitle") or {})
-    track = pick_subtitle_track(tracks)
-    if not track:
-        return {"text": "", "track": None, "source": "legacy"}
-    sub_url = track.get("subtitle_url") or ""
-    if not sub_url:
-        return {"text": "", "track": track, "source": "legacy"}
-    text = await _download_subtitle_text(sub_url)
-    return {"text": text, "track": track, "source": "legacy"}
+    aid, cid = await resolve_video_aid_cid(url, client=client)
+    if aid and cid:
+        return await fetch_subtitle_for_aid_cid(aid, cid, client=client)
+    return {"text": "", "track": None, "source": "view_api"}
 
 
 async def fetch_danmaku_lines(url: str, *, max_lines: int | None = None) -> list[str]:

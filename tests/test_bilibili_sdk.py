@@ -12,6 +12,8 @@ from osint_toolkit.ingest import bilibili_sdk
 
 
 def test_load_credential_from_cookie_file(tmp_path, monkeypatch):
+    import sys
+
     cookie_file = tmp_path / "bilibili.com.json"
     cookie_file.write_text(
         json.dumps(
@@ -23,7 +25,17 @@ def test_load_credential_from_cookie_file(tmp_path, monkeypatch):
         ),
         encoding="utf-8",
     )
+    monkeypatch.setattr(bilibili_sdk, "sdk_installed", lambda: True)
     monkeypatch.setattr(bilibili_sdk, "load_domain_cookie_file", lambda _d: json.loads(cookie_file.read_text()))
+
+    class FakeCredential:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    fake_mod = type(sys)("bilibili_api")
+    fake_mod.Credential = FakeCredential
+    monkeypatch.setitem(sys.modules, "bilibili_api", fake_mod)
+
     cred = bilibili_sdk.load_credential()
     assert cred is not None
     assert cred.sessdata == "abc"
@@ -147,3 +159,45 @@ async def test_sdk_fetch_comments_parses_lazy_offset(monkeypatch):
     assert calls == ["", "next-1"]
     assert len(rows) == 2
     assert rows[0]["likes"] == 5
+
+
+@pytest.mark.asyncio
+async def test_resolve_video_aid_cid_uses_bvid_view_api():
+    class FakeResp:
+        def json(self):
+            return {"code": 0, "data": {"aid": 425001, "pages": [{"cid": 9001}]}}
+
+    class FakeClient:
+        last_url = ""
+
+        async def get(self, url: str):
+            FakeClient.last_url = url
+            return FakeResp()
+
+    aid, cid = await bilibili_sdk.resolve_video_aid_cid(
+        "https://www.bilibili.com/video/BVtest425",
+        client=FakeClient(),
+    )
+    assert "bvid=BVtest425" in FakeClient.last_url
+    assert aid == 425001
+    assert cid == 9001
+
+
+@pytest.mark.asyncio
+async def test_fetch_subtitle_for_url_uses_matched_aid_cid(monkeypatch):
+    monkeypatch.setattr(bilibili_sdk, "sdk_installed", lambda: False)
+
+    async def fake_resolve(url, *, page_index=0, client=None):
+        assert "BVdaily" in url
+        return 111, 222
+
+    async def fake_fetch(aid, cid, *, client=None):
+        assert aid == 111 and cid == 222
+        return {"text": "AI日报字幕", "track": {"lan_doc": "中文"}, "source": "view_api", "aid": aid, "cid": cid}
+
+    monkeypatch.setattr(bilibili_sdk, "resolve_video_aid_cid", fake_resolve)
+    monkeypatch.setattr(bilibili_sdk, "fetch_subtitle_for_aid_cid", fake_fetch)
+
+    result = await bilibili_sdk.fetch_subtitle_for_url("https://www.bilibili.com/video/BVdaily")
+    assert result["text"] == "AI日报字幕"
+    assert result["source"] == "view_api"
