@@ -71,6 +71,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "sspai.com",
             "huxiu.com",
             "36kr.com",
+            "sogou.com",
+            "weixin.sogou.com",
+            "mp.weixin.qq.com",
         ],
         "auto_sync_before_search": True,
     },
@@ -84,7 +87,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "reports_dir": "reports",
     },
     "profiles": {
-        "default": {"sources": ["zhihu", "bilibili", "web", "v2ex"]},
+        "default": {"sources": ["zhihu", "bilibili", "web", "weixin"]},
         "full": {"sources": ["zhihu", "bilibili", "web", "v2ex", "rss", "weixin"]},
         "research": {"sources": ["zhihu", "bilibili", "v2ex", "web"], "simulate_persona": True},
     },
@@ -115,6 +118,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "site_searches": ["github.com", "bilibili.com", "zhihu.com"],
             "web_fetch_content": True,
             "web_fetch_top": 5,
+        },
+        "weixin": {
+            "resolve_mp_urls": True,
+            "resolve_top": 3,
+            "playwright_on_block": True,
+            "serp_fallback": True,
         },
     },
     "extension": {
@@ -195,6 +204,15 @@ def get_serp_config() -> dict[str, Any]:
     defaults = dict(DEFAULT_CONFIG.get("search", {}).get("serp") or {})
     merged = dict(defaults)
     merged.update(serp)
+    return merged
+
+
+def get_weixin_config() -> dict[str, Any]:
+    search = get_search_config()
+    weixin = dict(search.get("weixin") or {})
+    defaults = dict(DEFAULT_CONFIG.get("search", {}).get("weixin") or {})
+    merged = dict(defaults)
+    merged.update(weixin)
     return merged
 
 

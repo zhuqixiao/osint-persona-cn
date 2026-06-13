@@ -21,10 +21,13 @@ cookie_sync:
     - sspai.com
     - huxiu.com
     - 36kr.com
+    - sogou.com
+    - weixin.sogou.com
+    - mp.weixin.qq.com
 
 profiles:
   default:
-    sources: [zhihu, bilibili, web]
+    sources: [zhihu, bilibili, web, weixin]
   research:
     sources: [zhihu, bilibili, v2ex, web, rss]
     simulate_persona: true
@@ -90,3 +93,8 @@ search:
     site_searches: [github.com, bilibili.com, zhihu.com]
     web_fetch_content: true
     web_fetch_top: 5
+  weixin:
+    resolve_mp_urls: true   # 尝试将搜狗跳转链解析为 mp.weixin.qq.com 永久链
+    resolve_top: 3
+    playwright_on_block: true
+    serp_fallback: true      # 搜狗失败时用 site:mp.weixin.qq.com

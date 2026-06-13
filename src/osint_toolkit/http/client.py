@@ -35,6 +35,10 @@ class HttpClient:
             headers["Origin"] = "https://www.bilibili.com"
         elif "zhihu.com" in url:
             headers["Referer"] = self._zhihu_referer(url)
+        elif "weixin.sogou.com" in url:
+            headers["Referer"] = "https://weixin.sogou.com/"
+        elif "mp.weixin.qq.com" in url:
+            headers["Referer"] = "https://mp.weixin.qq.com/"
         return headers
 
     @staticmethod
