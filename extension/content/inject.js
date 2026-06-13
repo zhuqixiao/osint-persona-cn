@@ -29,6 +29,7 @@
   ];
 
   const REPLY_ACTION = /bilibili\.com\/x\/v2\/reply\/action/i;
+  const REPLY_ADD = /bilibili\.com\/x\/v2\/reply\/add/i;
 
   function shouldCapture(url) {
     return CAPTURE.some((re) => re.test(url));
@@ -79,6 +80,14 @@
     return {};
   }
 
+  function wrapReplyPostBody(params, responseBody) {
+    return {
+      code: 0,
+      _osint_reply_post: params,
+      _osint_response: responseBody || null,
+    };
+  }
+
   function wrapReplyActionBody(params, responseBody) {
     return {
       code: 0,
@@ -92,6 +101,20 @@
     const req = args[0];
     const url = typeof req === "string" ? req : req && req.url ? req.url : "";
     const isReplyAction = url && REPLY_ACTION.test(url);
+    const isReplyAdd = url && REPLY_ADD.test(url);
+
+    if (isReplyAdd) {
+      const params = await readRequestBody(args[1] || {});
+      const res = await origFetch.apply(this, args);
+      try {
+        res
+          .clone()
+          .json()
+          .then((body) => emit("fetch", url, wrapReplyPostBody(params, body)))
+          .catch(() => emit("fetch", url, wrapReplyPostBody(params, null)));
+      } catch (_) {}
+      return res;
+    }
 
     if (isReplyAction) {
       const params = await readRequestBody(args[1] || {});
@@ -134,8 +157,18 @@
     const url = String(this._osintUrl || "");
     const method = String(this._osintMethod || "").toUpperCase();
     const isReplyAction = REPLY_ACTION.test(url) && method === "POST";
+    const isReplyAdd = REPLY_ADD.test(url) && method === "POST";
 
-    if (isReplyAction) {
+    if (isReplyAdd) {
+      const params = parseFormBody(body);
+      this.addEventListener("load", function () {
+        let resp = null;
+        try {
+          if (this.responseText) resp = JSON.parse(this.responseText);
+        } catch (_) {}
+        emit("xhr", url, wrapReplyPostBody(params, resp));
+      });
+    } else if (isReplyAction) {
       const params = parseFormBody(body);
       this.addEventListener("load", function () {
         let resp = null;

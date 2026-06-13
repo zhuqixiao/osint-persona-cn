@@ -48,13 +48,19 @@ CAPABILITIES: list[dict[str, Any]] = [
         "platform": "bilibili",
         "behavior": "发过评论",
         "status": "partial",
-        "note": "AICU（需 probe PASS）；否则 space 页 + reply API 补洞",
+        "note": "AICU 批量 + 扩展拦截 reply/add 增量；服务端直连常被 WAF 拦截",
     },
     {
         "platform": "bilibili",
         "behavior": "评论点赞",
         "status": "partial",
-        "note": "仅扩展拦截 reply/action 增量，无历史列表",
+        "note": "扩展拦截 reply/action 增量，无历史列表",
+    },
+    {
+        "platform": "bilibili",
+        "behavior": "视频字幕/弹幕",
+        "status": "supported",
+        "note": "SDK get_subtitle/get_danmakus；搜索挖掘与 save 时填充 layers",
     },
     {"platform": "zhihu", "behavior": "收藏夹", "status": "supported", "note": "API + 扩展"},
     {

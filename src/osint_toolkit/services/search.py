@@ -35,7 +35,9 @@ from osint_toolkit.persona.context import load_seen_urls, maybe_load_persona_con
 
 from osint_toolkit.auth.cookie_sync import sync_browser_cookies
 
+from osint_toolkit.collectors.bilibili import BilibiliCollector
 from osint_toolkit.collectors.registry import COLLECTORS, DEFAULT_SEARCH_SOURCES, normalize_sources
+from osint_toolkit.collectors.zhihu import ZhihuCollector
 
 from osint_toolkit.exporters.report import export_report
 
@@ -235,6 +237,12 @@ async def _mine_comments(
 
         for item in by_source[src][:quota]:
 
+            if src == "bilibili" and item.type == "video":
+                try:
+                    await collector.enrich_video(item)
+                except Exception:  # noqa: BLE001
+                    pass
+
             comments = await collector.fetch_comments(item.url)
 
             item.layers["comments"] = comments
@@ -260,6 +268,10 @@ async def _mine_comments(
                     "comment_count": len(comments),
 
                     "comments_summary": summary,
+
+                    "subtitle_kind": (item.layers.get("subtitle") or {}).get("kind"),
+
+                    "danmaku_summary": item.layers.get("danmaku_summary", ""),
 
                 }
 
@@ -315,7 +327,7 @@ async def run_search(
 
     if comment_mine_top is None:
 
-        comment_mine_top = int(search_cfg.get("comment_mine_top", 3))
+        comment_mine_top = int(search_cfg.get("comment_mine_top", 12))
 
     if deep_top > 0 and comment_mine_top == 0:
 

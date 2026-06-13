@@ -227,6 +227,12 @@ async def ingest_aicu() -> dict[str, Any]:
     return await ingest_aicu_comments()
 
 
+async def ingest_my_comments(limit: int = 10_000) -> dict[str, Any]:
+    from osint_toolkit.ingest.bilibili_sdk import ingest_my_comments as _sdk_my_comments
+
+    return await _sdk_my_comments(limit=limit)
+
+
 async def ingest_aicu_json(payload: Any) -> dict[str, Any]:
     return await ingest_aicu_from_json(payload)
 

@@ -1,8 +1,9 @@
-"""bilibili-api-python 桥接层（折中集成：搜索/深采/评论，失败回退自研 WBI）。"""
+"""bilibili-api-python 桥接层（折中集成：搜索/深采/评论/字幕/弹幕，失败回退自研 WBI）。"""
 
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from osint_toolkit.auth.cookie_sync import load_domain_cookie_file
@@ -31,10 +32,15 @@ def get_bilibili_config() -> dict[str, Any]:
         "features": {
             "search": True,
             "comments": True,
+            "subtitle": True,
+            "danmaku": True,
             "ingest_history": True,
             "ingest_favorites": True,
             "ingest_followings": True,
+            "my_comments": True,
         },
+        "comments_fetch_limit": 60,
+        "danmaku_max_lines": 800,
         "search": {
             "types": ["video", "article", "bili_user"],
             "order_video": "totalrank",
@@ -464,7 +470,7 @@ async def fetch_comments_lazy(
     pages = 0
     resource_type = _comment_resource_type(comment_type)
 
-    while len(collected) < limit and pages < 4:
+    while len(collected) < limit and pages < max(4, (limit // 15) + 1):
         payload = await comment.get_comments_lazy(
             oid=int(oid),
             type_=resource_type,
@@ -502,3 +508,179 @@ async def fetch_comments_lazy(
 
     collected.sort(key=lambda c: c.get("likes", 0), reverse=True)
     return collected[:limit]
+
+
+_BVID_RE = re.compile(r"(BV[\w]+)", re.I)
+_AVID_RE = re.compile(r"\bav(\d+)\b", re.I)
+
+
+def parse_video_ref(url: str) -> tuple[str | None, int | None]:
+    bvid = None
+    aid = None
+    m = _BVID_RE.search(url)
+    if m:
+        bvid = m.group(1)
+    m = _AVID_RE.search(url)
+    if m:
+        aid = int(m.group(1))
+    return bvid, aid
+
+
+async def _video_instance(url: str):
+    from bilibili_api import video
+
+    credential = load_credential()
+    configure_sdk()
+    bvid, aid = parse_video_ref(url)
+    if bvid:
+        return video.Video(bvid=bvid, credential=credential)
+    if aid:
+        return video.Video(aid=aid, credential=credential)
+    raise ValueError(f"cannot parse bilibili video url: {url}")
+
+
+async def _resolve_cid(v, page_index: int = 0) -> int:
+    pages = await v.get_pages()
+    if pages:
+        cid = pages[page_index].get("cid") if page_index < len(pages) else pages[0].get("cid")
+        if cid:
+            return int(cid)
+    return int(await v.get_cid(page_index))
+
+
+async def _download_subtitle_text(sub_url: str) -> str:
+    from osint_toolkit.http.client import HttpClient
+    from osint_toolkit.processors.subtitle import parse_subtitle_json
+
+    if sub_url.startswith("//"):
+        sub_url = "https:" + sub_url
+    client = HttpClient()
+    body = await client.get_text(sub_url)
+    return parse_subtitle_json(body)
+
+
+def _subtitle_tracks_from_payload(payload: dict) -> list[dict]:
+    if not payload:
+        return []
+    tracks = payload.get("subtitles")
+    if isinstance(tracks, list) and tracks:
+        return [t for t in tracks if isinstance(t, dict)]
+    listing = payload.get("list")
+    if isinstance(listing, list):
+        return [t for t in listing if isinstance(t, dict)]
+    return []
+
+
+async def fetch_subtitle_for_url(url: str) -> dict[str, Any]:
+    """拉取视频字幕，返回 text / track / source。"""
+    from osint_toolkit.processors.subtitle import pick_subtitle_track
+
+    if sdk_installed() and sdk_enabled("subtitle"):
+        try:
+            v = await _video_instance(url)
+            cid = await _resolve_cid(v)
+            payload = await v.get_subtitle(cid=cid)
+            tracks = _subtitle_tracks_from_payload(payload or {})
+            track = pick_subtitle_track(tracks)
+            if not track:
+                return {"text": "", "track": None, "source": "sdk"}
+            sub_url = track.get("subtitle_url") or track.get("url") or ""
+            if not sub_url:
+                return {"text": "", "track": track, "source": "sdk"}
+            text = await _download_subtitle_text(sub_url)
+            return {"text": text, "track": track, "source": "sdk"}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("bilibili sdk subtitle failed: %s", exc)
+
+    from osint_toolkit.http.client import HttpClient
+
+    client = HttpClient()
+    page_html = await client.get_text(url)
+    aid_match = re.search(r'"aid":(\d+)', page_html)
+    cid_match = re.search(r'"cid":(\d+)', page_html)
+    if not aid_match or not cid_match:
+        return {"text": "", "track": None, "source": "legacy"}
+    player_url = (
+        f"https://api.bilibili.com/x/player/v2?aid={aid_match.group(1)}&cid={cid_match.group(1)}"
+    )
+    resp = await client.get(player_url)
+    data = resp.json().get("data") or {}
+    tracks = _subtitle_tracks_from_payload(data.get("subtitle") or {})
+    track = pick_subtitle_track(tracks)
+    if not track:
+        return {"text": "", "track": None, "source": "legacy"}
+    sub_url = track.get("subtitle_url") or ""
+    if not sub_url:
+        return {"text": "", "track": track, "source": "legacy"}
+    text = await _download_subtitle_text(sub_url)
+    return {"text": text, "track": track, "source": "legacy"}
+
+
+async def fetch_danmaku_lines(url: str, *, max_lines: int | None = None) -> list[str]:
+    cfg = get_bilibili_config()
+    limit = int(max_lines or cfg.get("danmaku_max_lines") or 800)
+    if not sdk_enabled("danmaku") or not sdk_installed():
+        return []
+    try:
+        v = await _video_instance(url)
+        cid = await _resolve_cid(v)
+        danmakus = await v.get_danmakus(0, cid=cid)
+        lines: list[str] = []
+        for dm in danmakus[:limit]:
+            text = str(getattr(dm, "text", "") or "").strip()
+            if text:
+                lines.append(text)
+        return lines
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("bilibili sdk danmaku failed: %s", exc)
+        return []
+
+
+def _track_label(track: dict | None) -> str:
+    if not track:
+        return "unknown"
+    lan_doc = str(track.get("lan_doc") or track.get("lan") or "")
+    if any(k in lan_doc for k in ("自动", "AI", "ai", "机翻", "智能")):
+        return "ai"
+    return "cc"
+
+
+async def enrich_video_item(item) -> None:
+    """为 B 站视频 IntelItem 填充字幕/弹幕 layers。"""
+    from osint_toolkit.analyzers.danmaku import aggregate_danmaku, summarize_danmaku
+
+    if getattr(item, "type", "") != "video" or "bilibili.com" not in getattr(item, "url", ""):
+        return
+
+    subtitle = await fetch_subtitle_for_url(item.url)
+    text = str(subtitle.get("text") or "").strip()
+    track = subtitle.get("track")
+    if text:
+        item.layers["subtitle"] = {
+            "text": text[:12000],
+            "kind": _track_label(track if isinstance(track, dict) else None),
+            "lan_doc": (track or {}).get("lan_doc") if isinstance(track, dict) else "",
+            "source": subtitle.get("source"),
+        }
+        if text not in (item.content or ""):
+            item.content = (str(item.content or "").strip() + f"\n\n[字幕:{item.layers['subtitle']['kind']}]\n{text}").strip()[:16000]
+    else:
+        item.layers["subtitle"] = {"text": "", "kind": "none", "source": subtitle.get("source")}
+
+    lines = await fetch_danmaku_lines(item.url)
+    if lines:
+        top = aggregate_danmaku(lines, top_n=15)
+        item.layers["danmaku_top"] = top
+        item.layers["danmaku_count"] = len(lines)
+        summary = await summarize_danmaku(top)
+        if summary:
+            item.layers["danmaku_summary"] = summary
+
+
+async def ingest_my_comments(limit: int = 10_000) -> dict[str, Any]:
+    """拉取当前账号发评历史（AICU 优先）。"""
+    if not sdk_enabled("my_comments"):
+        return {"ok": False, "error": "my_comments_disabled", "count": 0}
+    from osint_toolkit.ingest.aicu import ingest_aicu_comments
+
+    return await ingest_aicu_comments(limit=limit)

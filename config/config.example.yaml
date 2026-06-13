@@ -55,9 +55,14 @@ bilibili:
   features:
     search: true
     comments: true
+    subtitle: true
+    danmaku: true
     ingest_history: true
     ingest_favorites: true
     ingest_followings: true
+    my_comments: true
+  comments_fetch_limit: 60
+  danmaku_max_lines: 800
   search:
     types: [video, article, bili_user]   # 还可加 topic, media_bangumi, media_ft
     order_video: totalrank               # totalrank|click|pubdate|dm|stow|scores
@@ -102,6 +107,7 @@ ingest:
 
 # 搜索引擎（搜罗 web 源 + 知乎/B站 site: 回退）
 search:
+  comment_mine_top: 12
   serp:
     primary: auto          # auto | bing_api | serpapi | searxng | bing_html | duckduckgo_html | baidu_html | sogou_html
     strategy: fallback     # fallback | merge_html（API 仍优先，HTML 多引擎合并）

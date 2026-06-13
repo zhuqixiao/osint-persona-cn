@@ -227,20 +227,39 @@ class BilibiliCollector(BaseCollector):
         title = title_match.group(1).strip() if title_match else url
         desc_match = re.search(r'"desc":"(.*?)"', text)
         content = desc_match.group(1).encode().decode("unicode_escape") if desc_match else ""
-        subtitle = await self._fetch_subtitle(text)
-        if subtitle:
-            content = (content + "\n\n[字幕]\n" + subtitle).strip()
-        else:
-            content = (content + "\n\n[注: 未获取字幕，未分析画面]").strip()
-        return IntelItem(
+        item = IntelItem(
             source="bilibili",
             type="video",
             url=url,
             title=title,
             content=content[:12000],
         )
+        await self.enrich_video(item, page_html=text)
+        if not (item.layers.get("subtitle") or {}).get("text"):
+            item.content = (item.content + "\n\n[注: 未获取字幕，未分析画面]").strip()[:16000]
+        return item
 
-    async def _fetch_subtitle(self, page_html: str) -> str:
+    async def enrich_video(self, item: IntelItem, *, page_html: str | None = None) -> None:
+        from osint_toolkit.ingest import bilibili_sdk
+
+        if item.type != "video":
+            return
+        if bilibili_sdk.sdk_enabled("subtitle") or bilibili_sdk.sdk_enabled("danmaku"):
+            try:
+                await bilibili_sdk.enrich_video_item(item)
+                return
+            except Exception:  # noqa: BLE001
+                pass
+        if page_html is None:
+            page_html = await self.client.get_text(item.url)
+        subtitle = await self._fetch_subtitle_legacy(page_html)
+        if subtitle:
+            item.layers["subtitle"] = {"text": subtitle, "kind": "legacy", "source": "legacy"}
+            item.content = (str(item.content or "").strip() + "\n\n[字幕]\n" + subtitle).strip()[:16000]
+
+    async def _fetch_subtitle_legacy(self, page_html: str) -> str:
+        from osint_toolkit.processors.subtitle import pick_subtitle_track, parse_subtitle_json
+
         aid_match = re.search(r'"aid":(\d+)', page_html)
         cid_match = re.search(r'"cid":(\d+)', page_html)
         if not aid_match or not cid_match:
@@ -251,20 +270,26 @@ class BilibiliCollector(BaseCollector):
         try:
             resp = await self.client.get(player_url)
             data = resp.json().get("data", {})
-            subtitle = data.get("subtitle", {}).get("subtitles", [])
-            if not subtitle:
+            tracks = (data.get("subtitle") or {}).get("subtitles") or []
+            track = pick_subtitle_track(tracks)
+            if not track:
                 return ""
-            sub_url = subtitle[0].get("subtitle_url", "")
+            sub_url = track.get("subtitle_url", "")
             if sub_url.startswith("//"):
                 sub_url = "https:" + sub_url
             body = await self.client.get_text(sub_url)
-            from osint_toolkit.processors.subtitle import parse_subtitle_json
-
             return parse_subtitle_json(body)
         except Exception:  # noqa: BLE001
             return ""
 
-    async def fetch_comments(self, url: str, limit: int = 40) -> list[dict]:
+    async def _fetch_subtitle(self, page_html: str) -> str:
+        return await self._fetch_subtitle_legacy(page_html)
+
+    async def fetch_comments(self, url: str, limit: int | None = None) -> list[dict]:
+        from osint_toolkit.ingest import bilibili_sdk
+
+        if limit is None:
+            limit = int(bilibili_sdk.get_bilibili_config().get("comments_fetch_limit") or 60)
         oid = await self._resolve_oid(url)
         if not oid:
             return []
@@ -284,7 +309,7 @@ class BilibiliCollector(BaseCollector):
         seen_rpids: set[int] = set()
         next_offset = 0
         pages = 0
-        while len(collected) < limit and pages < 2:
+        while len(collected) < limit and pages < max(4, (limit // 20) + 1):
             replies, next_offset = await self._fetch_reply_page(oid, next_offset, comment_type)
             if not replies:
                 break
