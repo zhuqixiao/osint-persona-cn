@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from osint_toolkit.pipeline.progress import check_cancelled
 from osint_toolkit.services import browser_sync as browser_sync_service
 from osint_toolkit.services import ingest
 from osint_toolkit.utils.config import load_sync_config
@@ -12,8 +13,16 @@ from osint_toolkit.utils.config import load_sync_config
 async def run_full_sync(
     *,
     on_step: Callable[[dict[str, Any]], None] | None = None,
+    on_progress: Callable[..., None] | None = None,
+    job_id: str | None = None,
 ) -> dict[str, Any]:
     """Run preflight → accounts-sync → browser-sync → optional AICU → extension flush hint."""
+
+    def progress(phase: str, detail: str = "", **extra: Any) -> None:
+        check_cancelled(job_id)
+        if on_progress:
+            on_progress(phase, detail, **extra)
+
     cfg = load_sync_config()
     steps: list[dict[str, Any]] = []
     warnings: list[str] = []
@@ -24,6 +33,7 @@ async def run_full_sync(
             on_step(step)
 
     # 1. preflight
+    progress("preflight", "检查 Cookie 与登录态…", step_done=0)
     preflight = await ingest.ingest_preflight()
     emit({"step": "preflight", "ok": bool(preflight.get("ready")), "data": preflight})
     if not preflight.get("ready"):
@@ -35,7 +45,9 @@ async def run_full_sync(
         }
 
     # 2. accounts-sync (API pull only — browser-sync is a separate step)
+    progress("accounts-sync", "拉取 B站/知乎 API…", step_done=1)
     bili = await ingest.ingest_bilibili(include_favorites=True, include_likes=True)
+    check_cancelled(job_id)
     zhihu = await ingest.ingest_zhihu()
     accounts_count = (bili.get("count") or 0) + (zhihu.get("count") or 0)
     acct_warnings = list(bili.get("warnings") or []) + list(zhihu.get("warnings") or [])
@@ -58,6 +70,7 @@ async def run_full_sync(
         steps[-1]["persona_rebuild"] = persona
 
     # 3. Edge 浏览历史（画像信号，与扩展被动浏览互补）
+    progress("browser-history", "导入 Edge 浏览历史…", step_done=2)
     browser_count = 0
     if cfg.get("browser_history_enabled", True):
         since_days = int(cfg.get("browser_history_since_days") or 90)
@@ -83,6 +96,7 @@ async def run_full_sync(
         emit({"step": "browser-history", "ok": True, "skipped": True, "reason": "browser_history_enabled=false"})
 
     # 4. browser-sync job (inline when enabled)
+    progress("browser-sync", "Playwright 浏览器补洞…", step_done=3)
     bs_result: dict[str, Any] | None = None
     if cfg.get("browser_sync_enabled", True):
         try:
@@ -91,6 +105,7 @@ async def run_full_sync(
                 mode=cfg.get("browser_sync_mode"),
                 headless=cfg.get("browser_sync_headless"),
             )
+            check_cancelled(job_id)
             if bs_result.get("warnings"):
                 warnings.extend(bs_result["warnings"])
             emit(
@@ -110,6 +125,7 @@ async def run_full_sync(
         emit({"step": "browser-sync", "ok": True, "skipped": True, "reason": "browser_sync_enabled=false"})
 
     # 5. optional AICU
+    progress("aicu", "AICU 发评导入…", step_done=4)
     aicu_result: dict[str, Any] | None = None
     if cfg.get("aicu_enabled", False):
         probe = await _probe_aicu()
@@ -128,6 +144,7 @@ async def run_full_sync(
     else:
         emit({"step": "aicu", "ok": True, "skipped": True, "reason": "aicu_enabled=false"})
 
+    progress("extension-flush", "等待扩展上报…", step_done=5)
     flush_hint = _extension_flush_hint()
     emit({"step": "extension-flush", "ok": True, "hint": flush_hint})
 
@@ -137,6 +154,7 @@ async def run_full_sync(
         from osint_toolkit.services.setup import record_full_sync
 
         record_full_sync()
+    progress("done", f"完整同步完成 · {total_count} 条", step_done=6, percent=100)
     return {
         "ok": ok,
         "count": total_count,

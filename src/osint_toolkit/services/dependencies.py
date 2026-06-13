@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from osint_toolkit.services import auth
 
@@ -131,18 +131,32 @@ def get_dependencies_status() -> dict[str, Any]:
     }
 
 
-async def install_playwright(*, log_lines: list[str] | None = None) -> dict[str, Any]:
+async def install_playwright(
+    *,
+    log_lines: list[str] | None = None,
+    on_log: Callable[[str], None] | None = None,
+    on_progress: Callable[[str, str, int, int], None] | None = None,
+) -> dict[str, Any]:
     """pip install -e \".[browser]\" + playwright install msedge."""
     lines = log_lines if log_lines is not None else []
 
     def _log(msg: str) -> None:
-        lines.append(msg)
+        text = msg.strip()
+        if not text:
+            return
+        lines.append(text)
+        if on_log:
+            on_log(text)
 
     if playwright_available():
         _log("playwright 包已存在，跳过 pip install")
+        if on_progress:
+            on_progress("pip", "playwright 包已存在", 1, 40)
     else:
         _log("安装 osint-toolkit[browser] …")
-        code, out = await _run_subprocess(
+        if on_progress:
+            on_progress("pip", "pip install osint-toolkit[browser]…", 0, 10)
+        code = await _run_subprocess_stream(
             sys.executable,
             "-m",
             "pip",
@@ -150,23 +164,25 @@ async def install_playwright(*, log_lines: list[str] | None = None) -> dict[str,
             "-e",
             ".[browser]",
             cwd=_PROJECT_ROOT,
+            on_line=_log,
         )
-        if out:
-            _log(out[-4000:])
         if code != 0:
             raise RuntimeError(f"pip install 失败 (exit {code})")
+        if on_progress:
+            on_progress("pip", "pip 安装完成", 1, 45)
 
     _log("安装 Playwright Edge 浏览器驱动 …")
-    code, out = await _run_subprocess(
+    if on_progress:
+        on_progress("playwright", "下载 Edge 驱动…", 1, 55)
+    code = await _run_subprocess_stream(
         sys.executable,
         "-m",
         "playwright",
         "install",
         "msedge",
         cwd=_PROJECT_ROOT,
+        on_line=_log,
     )
-    if out:
-        _log(out[-4000:])
     if code != 0:
         raise RuntimeError(f"playwright install 失败 (exit {code})")
 
@@ -174,7 +190,28 @@ async def install_playwright(*, log_lines: list[str] | None = None) -> dict[str,
         raise RuntimeError("安装完成但仍无法 import playwright，请重启 Web 服务后重试")
 
     _log("Playwright 安装完成")
+    if on_progress:
+        on_progress("done", "Playwright 安装完成", 2, 100)
     return {"ok": True, "playwright_installed": True, "log": lines}
+
+
+async def _run_subprocess_stream(*cmd: str, cwd: Path, on_line: Callable[[str], None] | None = None) -> int:
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    assert proc.stdout is not None
+    while True:
+        chunk = await proc.stdout.readline()
+        if not chunk:
+            break
+        line = chunk.decode("utf-8", errors="replace").rstrip()
+        if line and on_line:
+            on_line(line)
+    await proc.wait()
+    return proc.returncode or 0
 
 
 async def _run_subprocess(*cmd: str, cwd: Path) -> tuple[int, str]:

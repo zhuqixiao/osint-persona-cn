@@ -48,6 +48,98 @@ function setFeedbackActive(card, targetType, rating) {
   });
 }
 
+function itemCardTeaser(item) {
+  if (item.summary) {
+    const plain = String(item.summary)
+      .replace(/```[\s\S]*?```/g, " ")
+      .replace(/[#>*_\[\]`]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (plain) return plain.length > 140 ? `${plain.slice(0, 137)}…` : plain;
+  }
+  const raw = (item.content || item.layers?.subtitle?.text || "").trim();
+  if (raw) {
+    const oneLine = raw.replace(/\s+/g, " ");
+    return oneLine.length > 120 ? `${oneLine.slice(0, 117)}…` : oneLine;
+  }
+  if (item.key_points?.[0]) {
+    const kp = String(item.key_points[0]);
+    return kp.length > 120 ? `${kp.slice(0, 117)}…` : kp;
+  }
+  return "点击展开查看详情";
+}
+
+function itemSectionFlags(item, sim) {
+  const flags = [];
+  if (item.summary || item.key_points?.length) flags.push("摘要");
+  if (item.layers?.comments_summary) flags.push("观点");
+  const raw = (item.content || item.layers?.subtitle?.text || "").trim();
+  if (raw) flags.push("原文");
+  if (item.layers?.comments?.length) flags.push(`热评 ${item.layers.comments.length}`);
+  if (sim && !sim.raw) flags.push("模拟");
+  return flags;
+}
+
+function formatRelevanceBadge(item) {
+  const rel = Number(item.signals?.relevance);
+  if (Number.isNaN(rel)) return '<span class="relevance-badge">—</span>';
+  const pct = Math.round(Math.max(0, Math.min(1, rel)) * 100);
+  let tier = "low";
+  if (pct >= 70) tier = "high";
+  else if (pct >= 45) tier = "mid";
+  return `<span class="relevance-badge relevance-${tier}" title="相关度">${pct}%</span>`;
+}
+
+function initItemCardInteractions(container) {
+  container.querySelectorAll(".item-card").forEach((card) => {
+    const header = card.querySelector(".item-card-header");
+    if (!header || header.dataset.bound === "1") return;
+    header.dataset.bound = "1";
+    const toggle = () => {
+      const expanded = card.classList.toggle("is-expanded");
+      card.classList.toggle("is-collapsed", !expanded);
+      header.setAttribute("aria-expanded", expanded ? "true" : "false");
+    };
+    header.addEventListener("click", (ev) => {
+      if (ev.target.closest(".item-card-quick-actions, .item-card-body, a, button")) return;
+      toggle();
+    });
+    header.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        toggle();
+      }
+    });
+  });
+}
+
+function bindResultsToolbar(container) {
+  const expandBtn = container.querySelector("[data-expand-all]");
+  const collapseBtn = container.querySelector("[data-collapse-all]");
+  const cardsHost = container.querySelector(".item-card-list");
+  if (!cardsHost) return;
+  const setAll = (expanded) => {
+    cardsHost.querySelectorAll(".item-card").forEach((card) => {
+      card.classList.toggle("is-expanded", expanded);
+      card.classList.toggle("is-collapsed", !expanded);
+      const header = card.querySelector(".item-card-header");
+      if (header) header.setAttribute("aria-expanded", expanded ? "true" : "false");
+    });
+  };
+  expandBtn?.addEventListener("click", () => setAll(true));
+  collapseBtn?.addEventListener("click", () => setAll(false));
+}
+
+function renderResultsToolbar(count) {
+  return `<div class="results-toolbar">
+    <span class="muted results-toolbar-count">${count} 条结果 · 默认收起，点击标题展开</span>
+    <div class="results-toolbar-actions">
+      <button type="button" class="btn btn-sm btn-ghost" data-expand-all>全部展开</button>
+      <button type="button" class="btn btn-sm btn-ghost" data-collapse-all>全部收起</button>
+    </div>
+  </div>`;
+}
+
 function formatCommentsSection(comments) {
   const rows = comments
     .slice(0, 10)
@@ -58,10 +150,12 @@ function formatCommentsSection(comments) {
     </div>`
     )
     .join("");
-  return `<section class="content-section comments-raw-section">
-    <h4 class="section-label">原始热评 (${comments.length})</h4>
-    <div class="comments-list">${rows}</div>
-  </section>`;
+  return `<details class="item-section item-section-comments">
+    <summary class="item-section-summary">原始热评 <span class="muted">(${comments.length})</span></summary>
+    <div class="item-section-body">
+      <div class="comments-list">${rows}</div>
+    </div>
+  </details>`;
 }
 
 function hydrateItemCards(container, items) {
@@ -235,10 +329,17 @@ function normalizeStepName(raw) {
     .replace(/\.json$/, "");
 }
 
-function renderSearchProgressPanel(container, state) {
+function renderJobProgressPanel(container, state, options = {}) {
   if (!container) return;
+  const {
+    labelFn = stepLabel,
+    showCancel = false,
+    cancelUrl = "",
+    showPartial = false,
+    forcePercent = null,
+  } = options;
   const phase = normalizeStepName(state.phase);
-  const label = stepLabel(phase);
+  const label = labelFn(phase);
   const detail = state.detail || "";
   const startedAt = state.startedAt ? new Date(state.startedAt).getTime() : Date.now();
   const elapsed = formatElapsedMs(Date.now() - startedAt);
@@ -247,14 +348,25 @@ function renderSearchProgressPanel(container, state) {
   const collectTotal = Number(state.collectTotal) || 0;
   const itemsFound = Number(state.itemsFound) || 0;
   const eta = formatEtaSeconds(state.etaSec);
-  const pct = collectTotal > 0 ? Math.min(100, Math.round((collectDone / collectTotal) * 100)) : 0;
-  const showBar = phase === "collect_all" && collectTotal > 0;
+  const stepDone = Number(state.stepDone) || 0;
+  const stepTotal = Number(state.stepTotal) || 0;
+  let pct =
+    forcePercent != null
+      ? forcePercent
+      : stepTotal > 0
+        ? Math.min(100, Math.round((stepDone / stepTotal) * 100))
+        : collectTotal > 0
+          ? Math.min(100, Math.round((collectDone / collectTotal) * 100))
+          : Number(state.percent) || 0;
+  if (state.percent != null && stepTotal > 0) pct = Math.min(100, Number(state.percent) || pct);
+  const showBar = (phase === "collect_all" && collectTotal > 0) || stepTotal > 0 || forcePercent != null;
   const currentUrl = (state.currentUrl || "").trim();
   const recent = state.recentUrls || [];
+  const partialItems = state.partialItems || [];
 
   const stepsHtml = completed
     .map((s) => {
-      const name = stepLabel(normalizeStepName(s.step));
+      const name = labelFn(normalizeStepName(s.step));
       const ms = s.duration_ms != null ? ` · ${(s.duration_ms / 1000).toFixed(1)}s` : "";
       const summary = s.summary ? ` — ${escapeHtml(String(s.summary))}` : "";
       const err = s.status === "error" ? " search-step-error" : "";
@@ -264,7 +376,8 @@ function renderSearchProgressPanel(container, state) {
 
   const statsParts = [];
   if (itemsFound > 0) statsParts.push(`已找到 ${itemsFound} 条`);
-  if (showBar) statsParts.push(`${collectDone}/${collectTotal}`);
+  if (phase === "collect_all" && collectTotal > 0) statsParts.push(`${collectDone}/${collectTotal}`);
+  if (stepTotal > 0 && phase !== "collect_all") statsParts.push(`${stepDone}/${stepTotal}`);
   if (eta) statsParts.push(`剩余 ${eta}`);
   const statsHtml = statsParts.length
     ? `<div class="search-progress-stats muted">${escapeHtml(statsParts.join(" · "))}</div>`
@@ -288,6 +401,27 @@ function renderSearchProgressPanel(container, state) {
         .join("")}</ul>`
     : "";
 
+  const partialHtml =
+    showPartial && partialItems.length
+      ? `<ul class="search-progress-partial">${partialItems
+          .slice(-6)
+          .map((item) => {
+            const title = escapeHtml((item.title || item.url || "无标题").slice(0, 72));
+            const src = escapeHtml(sourceLabel(item.source || ""));
+            const rel = item.relevance != null ? ` · ${Math.round(Number(item.relevance) * 100)}%` : "";
+            const link = item.url
+              ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener">${title}</a>`
+              : title;
+            return `<li><span class="chip chip-sm">${src}</span> ${link}<span class="muted">${rel}</span></li>`;
+          })
+          .join("")}</ul>`
+      : "";
+
+  const cancelHtml =
+    showCancel && cancelUrl
+      ? `<button type="button" class="btn btn-sm btn-ghost job-progress-cancel" data-cancel-url="${escapeHtml(cancelUrl)}">取消</button>`
+      : "";
+
   container.innerHTML = `
     <div class="search-progress card card-flat">
       <div class="search-progress-head">
@@ -296,17 +430,100 @@ function renderSearchProgressPanel(container, state) {
           <div class="search-progress-phase">${escapeHtml(label)}</div>
           <div class="search-progress-detail muted">${escapeHtml(detail || "处理中…")}</div>
         </div>
+        ${cancelHtml}
         <span class="search-progress-elapsed muted" title="已用时间">${escapeHtml(elapsed)}</span>
       </div>
       ${barHtml}
       ${statsHtml}
       ${urlHtml}
       ${recentHtml}
+      ${partialHtml}
       ${stepsHtml ? `<ol class="search-progress-steps">${stepsHtml}</ol>` : ""}
     </div>`;
+
+  container.querySelector(".job-progress-cancel")?.addEventListener("click", async (ev) => {
+    const btn = ev.currentTarget;
+    const url = btn.getAttribute("data-cancel-url");
+    if (!url || btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = "取消中…";
+    try {
+      await api("POST", url, {});
+    } catch (_) {
+      btn.disabled = false;
+      btn.textContent = "取消";
+    }
+  });
 }
 
-function mountSearchProgress(container) {
+function renderSearchProgressPanel(container, state) {
+  renderJobProgressPanel(container, state, {
+    showCancel: Boolean(state.runId),
+    cancelUrl: state.runId ? `/api/search/${state.runId}/cancel` : "",
+    showPartial: true,
+  });
+}
+
+function applyProgressPatch(state, progress) {
+  if (!progress) return;
+  if (progress.phase) state.phase = progress.phase;
+  if (progress.detail) state.detail = progress.detail;
+  if (progress.started_at) state.startedAt = progress.started_at;
+  if (progress.completed_steps) state.completedSteps = progress.completed_steps;
+  if (progress.collect_done != null) state.collectDone = progress.collect_done;
+  if (progress.collect_total != null) state.collectTotal = progress.collect_total;
+  if (progress.items_found != null) state.itemsFound = progress.items_found;
+  if (progress.eta_sec != null) state.etaSec = progress.eta_sec;
+  if (progress.current_url != null) state.currentUrl = progress.current_url;
+  if (progress.recent_urls) state.recentUrls = progress.recent_urls;
+  if (progress.partial_items) state.partialItems = progress.partial_items;
+  if (progress.step_done != null) state.stepDone = progress.step_done;
+  if (progress.step_total != null) state.stepTotal = progress.step_total;
+  if (progress.percent != null) state.percent = progress.percent;
+}
+
+function mountSearchProgress(container, runId = "") {
+  const state = {
+    runId,
+    phase: "starting",
+    detail: "正在启动…",
+    startedAt: new Date().toISOString(),
+    completedSteps: [],
+    collectDone: 0,
+    collectTotal: 0,
+    itemsFound: 0,
+    etaSec: null,
+    currentUrl: "",
+    recentUrls: [],
+    partialItems: [],
+    stepDone: 0,
+    stepTotal: 0,
+    percent: 0,
+  };
+  renderSearchProgressPanel(container, state);
+  const timer = setInterval(() => {
+    if (!container.querySelector(".search-progress")) {
+      clearInterval(timer);
+      return;
+    }
+    renderSearchProgressPanel(container, state);
+  }, 1000);
+  return {
+    setRunId(id) {
+      state.runId = id;
+      renderSearchProgressPanel(container, state);
+    },
+    update(progress) {
+      applyProgressPatch(state, progress);
+      renderSearchProgressPanel(container, state);
+    },
+    stop() {
+      clearInterval(timer);
+    },
+  };
+}
+
+function mountJobProgress(container, { cancelUrl = "", labelFn = stepLabel, showPartial = false } = {}) {
   const state = {
     phase: "starting",
     detail: "正在启动…",
@@ -318,28 +535,30 @@ function mountSearchProgress(container) {
     etaSec: null,
     currentUrl: "",
     recentUrls: [],
+    partialItems: [],
+    stepDone: 0,
+    stepTotal: 0,
+    percent: 0,
   };
-  renderSearchProgressPanel(container, state);
+  const render = () =>
+    renderJobProgressPanel(container, state, {
+      labelFn,
+      showCancel: Boolean(cancelUrl),
+      cancelUrl,
+      showPartial,
+    });
+  render();
   const timer = setInterval(() => {
     if (!container.querySelector(".search-progress")) {
       clearInterval(timer);
       return;
     }
-    renderSearchProgressPanel(container, state);
+    render();
   }, 1000);
   return {
     update(progress) {
-      if (progress.phase) state.phase = progress.phase;
-      if (progress.detail) state.detail = progress.detail;
-      if (progress.started_at) state.startedAt = progress.started_at;
-      if (progress.completed_steps) state.completedSteps = progress.completed_steps;
-      if (progress.collect_done != null) state.collectDone = progress.collect_done;
-      if (progress.collect_total != null) state.collectTotal = progress.collect_total;
-      if (progress.items_found != null) state.itemsFound = progress.items_found;
-      if (progress.eta_sec != null) state.etaSec = progress.eta_sec;
-      if (progress.current_url != null) state.currentUrl = progress.current_url;
-      if (progress.recent_urls) state.recentUrls = progress.recent_urls;
-      renderSearchProgressPanel(container, state);
+      applyProgressPatch(state, progress);
+      render();
     },
     stop() {
       clearInterval(timer);
@@ -354,7 +573,7 @@ function sourceLabel(name) {
 function formatSimulation(sim, itemId, runId, feedbackMap = {}) {
   if (!sim) return "";
   if (sim.raw) {
-    return `<div class="sim-block"><strong>画像模拟</strong><p class="muted">未能结构化，请重新构建画像或关闭模拟</p></div>`;
+    return `<div class="sim-block"><p class="muted">未能结构化，请重新构建画像或关闭模拟</p></div>`;
   }
   const interest = sim.interest || "neutral";
   const conf = sim.confidence != null ? ` · ${Math.round(Number(sim.confidence) * 100)}%` : "";
@@ -558,6 +777,7 @@ async function runSearch() {
 
   try {
     const { run_id } = await api("POST", "/api/search", body);
+    progressUi.setRunId(run_id);
     runLink.href = `/runs/${run_id}`;
     runLink.classList.remove("hidden");
     runLink.textContent = "查看运行记录";
@@ -622,6 +842,13 @@ function subscribeSearchEvents(runId, resultsEl, stepsEl, reportEl, progressUi) 
           activePill.textContent = "完成";
         }
         void renderSearchResults(msg.result, resultsEl, reportEl, runId);
+      });
+    }
+    if (msg.type === "cancelled") {
+      finishSearchRun(progressUi, () => {
+        es.close();
+        resultsEl.innerHTML = `<div class="alert alert-warn">${escapeHtml(msg.error || "搜罗已取消")}</div>`;
+        stepsEl.innerHTML = "";
       });
     }
     if (msg.type === "error") {
@@ -696,11 +923,13 @@ async function renderSearchResults(result, resultsEl, reportEl, runId) {
   }
 
   const feedbackMap = await loadFeedbackMap(items.map((i) => i.id));
-  resultsEl.innerHTML = items
-    .map((item) => renderItemCard(item, simMap[item.id], runId, feedbackMap))
-    .join("");
+  resultsEl.innerHTML = `${renderResultsToolbar(items.length)}<div class="item-card-list">${items
+    .map((item, idx) => renderItemCard(item, simMap[item.id], runId, feedbackMap, idx === 0))
+    .join("")}</div>`;
 
   hydrateItemCards(resultsEl, items);
+  initItemCardInteractions(resultsEl);
+  bindResultsToolbar(resultsEl);
 
   resultsEl.querySelectorAll("[data-feedback]").forEach((btn) => {
     btn.addEventListener("click", () => submitFeedback(btn.dataset.feedback, btn.dataset.id, runId, btn));
@@ -722,72 +951,115 @@ async function renderSearchResults(result, resultsEl, reportEl, runId) {
   }
 }
 
-function renderItemCard(item, sim, runId, feedbackMap = {}) {
+function renderItemCard(item, sim, runId, feedbackMap = {}, expandedDefault = false) {
   const src = item.source || "web";
   const fold = item.signals?.fold_reason
-    ? `<div class="fold-reason">折叠原因: ${escapeHtml(item.signals.fold_reason)}</div>` : "";
+    ? `<div class="fold-reason">${escapeHtml(item.signals.fold_reason)}</div>` : "";
   const seenBadge = item.personal?.already_seen
-    ? `<span class="source-badge">已关注</span>` : "";
+    ? `<span class="source-badge source-seen">已关注</span>` : "";
   const simHtml = formatSimulation(sim, item.id, runId, feedbackMap);
   const itemRating = feedbackMap[`item:${item.id}`] || "";
-  const isShort = (item.content?.length || 0) <= 400 || item.type === "comment";
-  const sections = [];
   const rawText = (item.content || item.layers?.subtitle?.text || "").trim();
+  const teaser = escapeHtml(itemCardTeaser(item));
+  const flags = itemSectionFlags(item, sim);
+  const flagsHtml = flags.length
+    ? `<div class="item-card-flags">${flags.map((f) => `<span class="item-flag">${escapeHtml(f)}</span>`).join("")}</div>`
+    : "";
+  const expandedClass = expandedDefault ? "is-expanded" : "is-collapsed";
+  const ariaExpanded = expandedDefault ? "true" : "false";
+
+  const sections = [];
+
+  if (item.summary) {
+    sections.push(`<details class="item-section item-section-summary-block" open>
+      <summary class="item-section-summary">AI 摘要</summary>
+      <div class="item-section-body">
+        <div class="md-content summary-body"></div>
+        ${item.key_points?.length ? `<ul class="key-points">${item.key_points.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul>` : ""}
+      </div>
+    </details>`);
+  } else if (item.key_points?.length) {
+    sections.push(`<details class="item-section" open>
+      <summary class="item-section-summary">要点</summary>
+      <div class="item-section-body">
+        <ul class="key-points">${item.key_points.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul>
+      </div>
+    </details>`);
+  }
+
+  if (item.layers?.comments_summary) {
+    sections.push(`<details class="item-section">
+      <summary class="item-section-summary">社区观点归纳</summary>
+      <div class="item-section-body">
+        <div class="md-content comments-summary-body"></div>
+        <p class="muted section-hint">以上为 AI 归纳，非事实陈述；可展开下方查看原始热评。</p>
+      </div>
+    </details>`);
+  }
 
   if (rawText) {
-    sections.push(`<section class="content-section raw-section${isShort ? " raw-prominent" : ""}">
-      <h4 class="section-label">原始内容</h4>
-      <div class="md-content raw-body"></div>
-    </section>`);
+    sections.push(`<details class="item-section item-section-raw">
+      <summary class="item-section-summary">原始内容</summary>
+      <div class="item-section-body raw-section">
+        <div class="md-content raw-body"></div>
+      </div>
+    </details>`);
   } else if (item.source === "bilibili" && item.type === "video") {
-    sections.push(`<section class="content-section raw-section">
-      <h4 class="section-label">原始内容</h4>
-      <p class="muted">B站未获取到简介或字幕；可点「原文」查看。字幕需有效 B 站登录 Cookie（设置页同步），或勾选评论挖掘拉热评。</p>
-    </section>`);
+    sections.push(`<details class="item-section">
+      <summary class="item-section-summary">原始内容</summary>
+      <div class="item-section-body">
+        <p class="muted">B站未获取到简介或字幕；可点「原文」查看。字幕需有效 B 站登录 Cookie，或勾选评论挖掘拉热评。</p>
+      </div>
+    </details>`);
   }
 
-  const aiParts = [];
-  if (item.summary) {
-    aiParts.push(`<section class="content-section ai-section">
-      <h4 class="section-label">AI 摘要</h4>
-      <div class="md-content summary-body"></div>
-    </section>`);
-  }
-  if (item.key_points?.length) {
-    aiParts.push(`<ul class="key-points">${item.key_points.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul>`);
-  }
-  if (item.layers?.comments_summary) {
-    aiParts.push(`<section class="content-section">
-      <h4 class="section-label">社区观点归纳</h4>
-      <div class="md-content comments-summary-body"></div>
-      <p class="muted section-hint">以上为 AI 归纳，非事实陈述；下方可查看原始热评。</p>
-    </section>`);
-  }
   if (item.personal?.matched_queries?.length > 1) {
-    aiParts.push(`<p class="muted">命中关联词: ${item.personal.matched_queries.map((q) => escapeHtml(q)).join("、")}</p>`);
-  }
-  if (item.layers?.comments?.length) {
-    aiParts.push(formatCommentsSection(item.layers.comments));
-  }
-  if (aiParts.length) {
-    sections.push(`<div class="analysis-block">${aiParts.join("")}</div>`);
+    sections.push(`<p class="item-meta-line muted">命中关联词：${item.personal.matched_queries.map((q) => escapeHtml(q)).join("、")}</p>`);
   }
 
-  return `<article class="card item-card" data-item-id="${escapeHtml(item.id)}">
-    <div class="meta">
-      <span class="source-badge source-${escapeHtml(src)}">${escapeHtml(sourceLabel(src))}</span>
-      ${seenBadge}
-      <span>相关度 ${item.signals?.relevance ?? "-"}</span>
-      ${item.metrics?.likes ? `<span>👍 ${item.metrics.likes}</span>` : ""}
+  if (item.layers?.comments?.length) {
+    sections.push(formatCommentsSection(item.layers.comments));
+  }
+
+  if (simHtml) {
+    sections.push(`<details class="item-section item-section-sim">
+      <summary class="item-section-summary">画像模拟</summary>
+      <div class="item-section-body">${simHtml}</div>
+    </details>`);
+  }
+
+  const metrics = [];
+  if (item.metrics?.likes) metrics.push(`👍 ${item.metrics.likes}`);
+  if (item.metrics?.comments) metrics.push(`💬 ${item.metrics.comments}`);
+  if (item.author) metrics.push(escapeHtml(item.author));
+
+  return `<article class="card item-card item-source-${escapeHtml(src)} ${expandedClass}" data-item-id="${escapeHtml(item.id)}">
+    <div class="item-card-header" role="button" tabindex="0" aria-expanded="${ariaExpanded}">
+      <span class="item-card-chevron" aria-hidden="true"></span>
+      <div class="item-card-head-content">
+        <div class="item-card-meta">
+          <span class="source-badge source-${escapeHtml(src)}">${escapeHtml(sourceLabel(src))}</span>
+          ${seenBadge}
+          ${formatRelevanceBadge(item)}
+          ${metrics.map((m) => `<span class="item-metric">${m}</span>`).join("")}
+        </div>
+        <h3 class="item-card-title">${escapeHtml(item.title || "无标题")}</h3>
+        <p class="item-card-teaser">${teaser}</p>
+        ${flagsHtml}
+        ${fold}
+      </div>
+      <div class="item-card-quick-actions">
+        <a class="btn btn-sm btn-secondary" href="${escapeHtml(item.url)}" target="_blank" rel="noopener">原文</a>
+      </div>
     </div>
-    <div class="title">${escapeHtml(item.title)}</div>
-    ${fold}
-    <div class="layers">${sections.join("")}${simHtml}</div>
-    <div class="actions">
-      <a class="btn btn-sm" href="${escapeHtml(item.url)}" target="_blank" rel="noopener">原文</a>
-      <button class="btn btn-sm btn-secondary" data-save="${escapeHtml(item.url)}">收录</button>
-      <button class="${feedbackBtnClass(itemRating === "useful", "btn btn-sm btn-secondary")}" data-base-label="有用" data-feedback="useful" data-id="${item.id}">${feedbackLabel("有用", itemRating === "useful")}</button>
-      <button class="${feedbackBtnClass(itemRating === "noise")}" data-base-label="噪音" data-feedback="noise" data-id="${item.id}">${feedbackLabel("噪音", itemRating === "noise")}</button>
+    <div class="item-card-body">
+      <div class="item-card-sections">${sections.join("")}</div>
+      <div class="actions">
+        <a class="btn btn-sm" href="${escapeHtml(item.url)}" target="_blank" rel="noopener">打开原文</a>
+        <button class="btn btn-sm btn-secondary" data-save="${escapeHtml(item.url)}">收录</button>
+        <button class="${feedbackBtnClass(itemRating === "useful", "btn btn-sm btn-secondary")}" data-base-label="有用" data-feedback="useful" data-id="${item.id}">${feedbackLabel("有用", itemRating === "useful")}</button>
+        <button class="${feedbackBtnClass(itemRating === "noise")}" data-base-label="噪音" data-feedback="noise" data-id="${item.id}">${feedbackLabel("噪音", itemRating === "noise")}</button>
+      </div>
     </div>
   </article>`;
 }
@@ -1198,7 +1470,7 @@ function initIngest() {
     runIngest("zhihu", null, "ingest-zhihu-result"));
   document.getElementById("btn-ingest-full-sync")?.addEventListener("click", async () => {
     const el = document.getElementById("ingest-full-sync-result");
-    const progress = document.getElementById("ingest-full-sync-progress");
+    const progressEl = document.getElementById("ingest-full-sync-progress");
     const btn = document.getElementById("btn-ingest-full-sync");
     if (!el) return;
     if (btn) {
@@ -1207,45 +1479,43 @@ function initIngest() {
     }
     el.className = "alert alert-warn mt-1";
     el.textContent = "启动完整同步…";
-    if (progress) {
-      progress.classList.remove("hidden");
-      progress.innerHTML = "";
+    let progressUi = null;
+    if (progressEl) {
+      progressEl.classList.remove("hidden");
+      progressEl.innerHTML = "";
+      progressUi = mountJobProgress(progressEl, { cancelUrl: "" });
     }
-    const stepLabels = {
+    const syncStepLabels = {
       preflight: "Cookie 预检",
       "accounts-sync": "B站/知乎 API",
       "browser-history": "Edge 浏览历史",
       "browser-sync": "浏览器补洞",
       aicu: "AICU 发评",
       "extension-flush": "扩展上报",
-    };
-    const renderSteps = (steps) => {
-      if (!progress || !steps?.length) return;
-      progress.innerHTML = steps
-        .map((s) => {
-          const label = stepLabels[s.step] || s.step;
-          const icon = s.ok ? "✓" : s.skipped ? "○" : "…";
-          let detail = "";
-          if (s.step === "accounts-sync" && s.count != null) detail = ` ${s.count} 条`;
-          if (s.step === "browser-history" && s.count != null) detail = ` ${s.count} 条`;
-          if (s.step === "browser-sync" && s.accepted != null) {
-            detail = ` ${s.accepted} 条`;
-            if (s.mode_used) detail += ` (${s.mode_used})`;
-          }
-          if (s.skipped) detail = ` 跳过`;
-          return `<div>${icon} ${escapeHtml(label)}${escapeHtml(detail)}</div>`;
-        })
-        .join("");
+      done: "完成",
     };
     try {
       const start = await api("POST", "/api/ingest/full-sync");
       const jobId = start.job_id;
       if (!jobId) throw new Error("未返回 job_id");
+      if (progressUi) {
+        progressUi.stop();
+        progressUi = mountJobProgress(progressEl, {
+          cancelUrl: `/api/ingest/full-sync/${jobId}/cancel`,
+          labelFn: (name) => syncStepLabels[name] || stepLabel(name),
+        });
+      }
       for (let i = 0; i < 180; i += 1) {
-        await new Promise((r) => setTimeout(r, 2500));
+        await new Promise((r) => setTimeout(r, 1000));
         const job = await api("GET", `/api/ingest/full-sync/${jobId}`);
-        if (job.steps?.length) renderSteps(job.steps);
+        if (job.progress && progressUi) progressUi.update(job.progress);
         if (job.status === "running") continue;
+        progressUi?.stop();
+        if (job.status === "cancelled") {
+          el.className = "alert alert-warn mt-1";
+          el.textContent = job.error || "完整同步已取消";
+          return;
+        }
         if (job.status === "done") {
           const ok = job.ok || (job.count || 0) > 0;
           el.className = ok ? "alert alert-success mt-1" : "alert alert-warn mt-1";
@@ -1259,7 +1529,6 @@ function initIngest() {
             msg += `<br><span class="muted">${escapeHtml(hint.message)}</span>`;
           }
           el.innerHTML = msg;
-          if (job.steps?.length) renderSteps(job.steps);
           loadIngestHealth();
           loadSetupWizard();
           initGlobalSidebar();
@@ -1267,9 +1536,11 @@ function initIngest() {
         }
         throw new Error(job.detail || "同步失败");
       }
+      progressUi?.stop();
       el.className = "alert alert-error mt-1";
-      el.textContent = "超时（>7.5 分钟）。请稍后重试。";
+      el.textContent = "超时（>3 分钟）。请稍后重试。";
     } catch (err) {
+      progressUi?.stop();
       el.className = "alert alert-error mt-1";
       el.textContent = err.message;
     } finally {
@@ -1667,12 +1938,25 @@ function renderDepItem(item) {
 }
 
 async function pollPlaywrightInstall(jobId, resultEl) {
+  const progressWrap = document.createElement("div");
+  progressWrap.className = "playwright-install-progress";
+  resultEl.innerHTML = "";
+  resultEl.appendChild(progressWrap);
+  const progressUi = mountJobProgress(progressWrap, {
+    labelFn: (name) =>
+      ({ pip: "pip 安装", playwright: "Edge 驱动", done: "完成" }[name] || name),
+  });
   for (let i = 0; i < 120; i += 1) {
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 1500));
     const job = await api("GET", `/api/setup/install-playwright/${jobId}`);
-    const logTail = (job.log || []).slice(-3).map(escapeHtml).join("<br>");
-    resultEl.innerHTML = `<div class="alert alert-warn">安装中…<br><span class="muted">${logTail}</span></div>`;
+    if (job.progress) progressUi.update(job.progress);
+    const logTail = (job.log || []).slice(-2).map(escapeHtml).join("<br>");
+    if (logTail && progressWrap.querySelector(".search-progress-detail")) {
+      const detailEl = progressWrap.querySelector(".search-progress-detail");
+      if (detailEl && !job.progress?.detail) detailEl.textContent = logTail.replace(/<[^>]+>/g, " ");
+    }
     if (job.status === "running") continue;
+    progressUi.stop();
     if (job.status === "done") {
       resultEl.innerHTML = `<div class="alert alert-success">Playwright 安装完成。请重新搜罗或同步 Cookie 测试。</div>`;
       loadDependenciesChecklist();
@@ -1682,7 +1966,8 @@ async function pollPlaywrightInstall(jobId, resultEl) {
     resultEl.innerHTML = `<div class="alert alert-error">${escapeHtml(job.error || "安装失败")}</div>`;
     return;
   }
-  resultEl.innerHTML = `<div class="alert alert-error">安装超时（>4 分钟），请查看 Web 启动窗口或手动运行 scripts/install-browser-sync.ps1</div>`;
+  progressUi.stop();
+  resultEl.innerHTML = `<div class="alert alert-error">安装超时（>3 分钟），请查看 Web 启动窗口或手动运行 scripts/install-browser-sync.ps1</div>`;
 }
 
 async function installPlaywrightFromSettings(resultEl) {

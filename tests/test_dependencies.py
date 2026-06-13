@@ -29,8 +29,8 @@ async def test_install_playwright_already_installed():
     from osint_toolkit.services import dependencies
 
     with patch.object(dependencies, "playwright_available", return_value=True):
-        with patch.object(dependencies, "_run_subprocess", new_callable=AsyncMock) as run:
-            run.return_value = (0, "ok")
+        with patch.object(dependencies, "_run_subprocess_stream", new_callable=AsyncMock) as run:
+            run.return_value = 0
             result = await dependencies.install_playwright()
     assert result["ok"] is True
     assert run.await_count == 1

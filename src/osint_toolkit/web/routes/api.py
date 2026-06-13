@@ -50,8 +50,10 @@ from osint_toolkit.web.schemas import (
 )
 from osint_toolkit.utils.config import load_sync_config
 from osint_toolkit.web.tasks import (
+    cancel_job,
     get_job,
     get_job_result,
+    job_public_view,
     start_browser_sync_job,
     start_full_sync_job,
     start_playwright_install_job,
@@ -112,7 +114,13 @@ async def api_search_result(run_id: str) -> dict[str, Any]:
     job = get_job(run_id)
     if job:
         if job["status"] == "running":
-            return {"run_id": run_id, "status": "running"}
+            payload: dict[str, Any] = {"run_id": run_id, "status": "running"}
+            progress = job_public_view(run_id, job).get("progress")
+            if progress:
+                payload["progress"] = progress
+            return payload
+        if job["status"] == "cancelled":
+            return {"run_id": run_id, "status": "cancelled", "error": job.get("error") or "已取消"}
         if job["status"] == "error":
             raise HTTPException(500, detail=job["error"])
         return {"run_id": run_id, "status": "done", **_serialize_search_result(job["result"])}
@@ -123,6 +131,18 @@ async def api_search_result(run_id: str) -> dict[str, Any]:
             payload["manifest"] = disk["manifest"]
         return {"run_id": run_id, "status": "done", **payload}
     raise HTTPException(404, detail="run not found")
+
+
+@router.post("/search/{run_id}/cancel")
+async def api_search_cancel(run_id: str) -> dict[str, Any]:
+    if not cancel_job(run_id):
+        job = get_job(run_id)
+        if not job:
+            raise HTTPException(404, detail="run not found")
+        if job.get("status") != "running":
+            return {"run_id": run_id, "status": job.get("status"), "cancelled": False}
+        raise HTTPException(409, detail="无法取消该任务")
+    return {"run_id": run_id, "status": "cancelling", "cancelled": True}
 
 
 @router.get("/search/{run_id}/events")
@@ -163,6 +183,9 @@ async def api_search_events(run_id: str) -> StreamingResponse:
             if job and job["status"] == "done":
                 result = _serialize_search_result(job["result"])
                 yield f"data: {json.dumps({'type': 'done', 'result': result}, ensure_ascii=False)}\n\n"
+                break
+            if job and job["status"] == "cancelled":
+                yield f"data: {json.dumps({'type': 'cancelled', 'error': job.get('error') or '已取消'}, ensure_ascii=False)}\n\n"
                 break
             if job and job["status"] == "error":
                 yield f"data: {json.dumps({'type': 'error', 'error': job['error']}, ensure_ascii=False)}\n\n"
@@ -323,12 +346,14 @@ async def api_install_playwright_status(job_id: str) -> dict[str, Any]:
     job = get_job(job_id)
     if not job or job.get("kind") != "playwright_install":
         raise HTTPException(404, detail="job not found")
+    payload = job_public_view(job_id, job)
     return {
         "job_id": job_id,
         "status": job.get("status"),
         "log": job.get("log") or [],
         "result": job.get("result"),
         "error": job.get("error"),
+        "progress": payload.get("progress"),
     }
 
 
@@ -397,11 +422,36 @@ async def api_ingest_full_sync_result(job_id: str) -> dict[str, Any]:
     if not job:
         raise HTTPException(404, detail="job not found")
     if job["status"] == "running":
-        return {"job_id": job_id, "status": "running", "steps": job.get("steps") or []}
+        payload = job_public_view(job_id, job)
+        return {
+            "job_id": job_id,
+            "status": "running",
+            "steps": job.get("steps") or [],
+            "progress": payload.get("progress"),
+        }
+    if job["status"] == "cancelled":
+        return {
+            "job_id": job_id,
+            "status": "cancelled",
+            "steps": job.get("steps") or [],
+            "error": job.get("error") or "已取消",
+        }
     if job["status"] == "error":
         raise HTTPException(500, detail=job["error"])
     result = job.get("result") or {}
     return {"job_id": job_id, "status": "done", "steps": result.get("steps") or job.get("steps") or [], **result}
+
+
+@router.post("/ingest/full-sync/{job_id}/cancel")
+async def api_ingest_full_sync_cancel(job_id: str) -> dict[str, Any]:
+    if not cancel_job(job_id):
+        job = get_job(job_id)
+        if not job:
+            raise HTTPException(404, detail="job not found")
+        if job.get("status") != "running":
+            return {"job_id": job_id, "status": job.get("status"), "cancelled": False}
+        raise HTTPException(409, detail="无法取消该任务")
+    return {"job_id": job_id, "status": "cancelling", "cancelled": True}
 
 
 @router.get("/ingest/likes")

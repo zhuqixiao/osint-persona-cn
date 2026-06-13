@@ -45,7 +45,7 @@ from osint_toolkit.models.intel_item import IntelItem
 
 from osint_toolkit.pipeline.context import RunContext
 
-from osint_toolkit.pipeline.progress import update_progress
+from osint_toolkit.pipeline.progress import JobCancelled, check_cancelled, update_progress
 
 from osint_toolkit.pipeline.runner import PipelineRunner
 
@@ -78,6 +78,17 @@ def _collect_target_url(source: str, query: str) -> str:
         "weixin": f"https://weixin.sogou.com/weixin?type=2&query={q}",
     }
     return urls.get(source, "")
+
+
+def _preview_item(item: IntelItem) -> dict[str, Any]:
+    rel = getattr(getattr(item, "signals", None), "relevance", 0) or 0
+    return {
+        "id": item.id,
+        "source": item.source,
+        "title": (item.title or "")[:120],
+        "url": item.url,
+        "relevance": round(float(rel), 2),
+    }
 
 
 def _recent_url_entries(items: list[Any], existing: list[dict[str, str]], *, limit: int = 5) -> list[dict[str, str]]:
@@ -129,13 +140,15 @@ async def _record_step(runner: PipelineRunner, name: str, coro, **kwargs: Any):
     progress_detail = str(kwargs.get("progress_detail") or "")
 
     if run_id:
-
+        check_cancelled(run_id)
         update_progress(run_id, name, detail=progress_detail or f"正在执行 {name}…")
 
     try:
 
         data = await coro
 
+    except JobCancelled:
+        raise
     except Exception as exc:  # noqa: BLE001
 
         status = "error"
@@ -444,6 +457,7 @@ async def run_search(
 
 
     update_progress(run_id, "starting", detail="检查 Cookie 与配置…")
+    check_cancelled(run_id)
 
     if cfg.get("cookie_sync", {}).get("auto_sync_before_search") and os.name == "nt":
 
@@ -573,6 +587,7 @@ async def run_search(
         done = 0
         recent_urls: list[dict[str, str]] = []
         for finished in asyncio.as_completed(pending):
+            check_cancelled(run_id)
             source_name, q, group, err = await finished
             done += 1
             short_q = q if len(q) <= 36 else q[:33] + "…"
@@ -596,6 +611,7 @@ async def run_search(
             sample_url = ""
             if isinstance(group, list) and group:
                 sample_url = str(group[0].url or "")
+            preview_batch = [_preview_item(item) for item in (group or [])[:8]] if isinstance(group, list) else None
             update_progress(
                 run_id,
                 "collect_all",
@@ -606,6 +622,7 @@ async def run_search(
                 eta_sec=eta_sec,
                 current_url=sample_url or _collect_target_url(source_name, q),
                 recent_urls=recent_urls,
+                partial_items_append=preview_batch,
             )
 
         return {"items": list(shared_items), "source_errors": source_errors}

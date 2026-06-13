@@ -1,4 +1,4 @@
-"""后台搜索任务 / Background search tasks."""
+"""后台搜索/同步任务 / Background jobs."""
 
 from __future__ import annotations
 
@@ -11,10 +11,20 @@ from uuid import uuid4
 
 from osint_toolkit.auth.paths import get_data_dir
 from osint_toolkit.models.intel_item import IntelItem
-from osint_toolkit.pipeline.progress import clear_progress, init_progress
+from osint_toolkit.pipeline.job_progress import init_full_sync_progress, make_full_sync_callbacks
+from osint_toolkit.pipeline.progress import (
+    JobCancelled,
+    clear_progress,
+    get_progress,
+    init_progress,
+    is_cancelled,
+    request_cancel,
+    update_progress,
+)
 
 _MAX_JOBS = 50
 _jobs: OrderedDict[str, dict[str, Any]] = OrderedDict()
+_async_tasks: dict[str, asyncio.Task[Any]] = {}
 
 
 def new_run_id() -> str:
@@ -31,6 +41,26 @@ def get_job(run_id: str) -> dict[str, Any] | None:
     if job:
         _jobs.move_to_end(run_id)
     return job
+
+
+def _job_payload(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(job)
+    progress = get_progress(job_id)
+    if progress:
+        payload["progress"] = progress
+    return payload
+
+
+def cancel_job(job_id: str) -> bool:
+    """请求取消任务（搜罗 / 完整同步等）。"""
+    job = _jobs.get(job_id)
+    if not job or job.get("status") not in ("running", None):
+        return False
+    request_cancel(job_id)
+    task = _async_tasks.pop(job_id, None)
+    if task and not task.done():
+        task.cancel()
+    return True
 
 
 def _load_result_from_disk(run_id: str) -> dict[str, Any] | None:
@@ -85,10 +115,11 @@ def _load_result_from_disk(run_id: str) -> dict[str, Any] | None:
 
 def start_search_job(**kwargs: Any) -> str:
     run_id = new_run_id()
-    _jobs[run_id] = {"status": "running", "result": None, "error": None}
+    _jobs[run_id] = {"status": "running", "kind": "search", "result": None, "error": None}
     init_progress(run_id)
     _trim_jobs()
-    asyncio.create_task(_execute_search(run_id, **kwargs))
+    task = asyncio.create_task(_execute_search(run_id, **kwargs))
+    _async_tasks[run_id] = task
     return run_id
 
 
@@ -97,15 +128,23 @@ async def _execute_search(run_id: str, **kwargs: Any) -> None:
 
     try:
         result = await search_service.run_search(**kwargs, run_id=run_id)
-        _jobs[run_id] = {"status": "done", "result": result, "error": None}
+        if is_cancelled(run_id):
+            _jobs[run_id] = {"status": "cancelled", "kind": "search", "result": None, "error": "已取消"}
+        else:
+            _jobs[run_id] = {"status": "done", "kind": "search", "result": result, "error": None}
+        _jobs.move_to_end(run_id)
+        _trim_jobs()
+    except (JobCancelled, asyncio.CancelledError):
+        _jobs[run_id] = {"status": "cancelled", "kind": "search", "result": None, "error": "已取消"}
         _jobs.move_to_end(run_id)
         _trim_jobs()
     except Exception as exc:  # noqa: BLE001
-        _jobs[run_id] = {"status": "error", "result": None, "error": str(exc)}
+        _jobs[run_id] = {"status": "error", "kind": "search", "result": None, "error": str(exc)}
         _jobs.move_to_end(run_id)
         _trim_jobs()
     finally:
         clear_progress(run_id)
+        _async_tasks.pop(run_id, None)
 
 
 def get_job_result(run_id: str) -> dict[str, Any] | None:
@@ -119,7 +158,8 @@ def start_browser_sync_job(**kwargs: Any) -> str:
     job_id = new_run_id()
     _jobs[job_id] = {"status": "running", "kind": "browser_sync", "result": None, "error": None}
     _trim_jobs()
-    asyncio.create_task(_execute_browser_sync(job_id, **kwargs))
+    task = asyncio.create_task(_execute_browser_sync(job_id, **kwargs))
+    _async_tasks[job_id] = task
     return job_id
 
 
@@ -135,6 +175,8 @@ async def _execute_browser_sync(job_id: str, **kwargs: Any) -> None:
         _jobs[job_id] = {"status": "error", "kind": "browser_sync", "result": None, "error": str(exc)}
         _jobs.move_to_end(job_id)
         _trim_jobs()
+    finally:
+        _async_tasks.pop(job_id, None)
 
 
 def start_full_sync_job() -> str:
@@ -146,27 +188,54 @@ def start_full_sync_job() -> str:
         "result": None,
         "error": None,
     }
+    init_full_sync_progress(job_id)
     _trim_jobs()
-    asyncio.create_task(_execute_full_sync(job_id))
+    task = asyncio.create_task(_execute_full_sync(job_id))
+    _async_tasks[job_id] = task
     return job_id
 
 
 async def _execute_full_sync(job_id: str) -> None:
     from osint_toolkit.services import unified_sync
 
+    on_progress, on_step_completed = make_full_sync_callbacks(job_id)
+
     def on_step(step: dict[str, Any]) -> None:
         job = _jobs.get(job_id)
         if job:
             job["steps"] = list(job.get("steps") or []) + [step]
+        name = str(step.get("step") or "")
+        if name:
+            on_step_completed(name)
 
     try:
-        result = await unified_sync.run_full_sync(on_step=on_step)
+        on_progress("preflight", "检查 Cookie 与登录态…", step_done=0)
+        result = await unified_sync.run_full_sync(on_step=on_step, on_progress=on_progress, job_id=job_id)
+        if is_cancelled(job_id):
+            _jobs[job_id] = {
+                "status": "cancelled",
+                "kind": "full_sync",
+                "steps": result.get("steps") or _jobs.get(job_id, {}).get("steps") or [],
+                "result": None,
+                "error": "已取消",
+            }
+        else:
+            _jobs[job_id] = {
+                "status": "done",
+                "kind": "full_sync",
+                "steps": result.get("steps") or _jobs.get(job_id, {}).get("steps") or [],
+                "result": result,
+                "error": None,
+            }
+        _jobs.move_to_end(job_id)
+        _trim_jobs()
+    except (JobCancelled, asyncio.CancelledError):
         _jobs[job_id] = {
-            "status": "done",
+            "status": "cancelled",
             "kind": "full_sync",
-            "steps": result.get("steps") or _jobs.get(job_id, {}).get("steps") or [],
-            "result": result,
-            "error": None,
+            "steps": (_jobs.get(job_id) or {}).get("steps") or [],
+            "result": None,
+            "error": "已取消",
         }
         _jobs.move_to_end(job_id)
         _trim_jobs()
@@ -180,6 +249,9 @@ async def _execute_full_sync(job_id: str) -> None:
         }
         _jobs.move_to_end(job_id)
         _trim_jobs()
+    finally:
+        clear_progress(job_id)
+        _async_tasks.pop(job_id, None)
 
 
 def start_playwright_install_job() -> str:
@@ -191,24 +263,54 @@ def start_playwright_install_job() -> str:
         "result": None,
         "error": None,
     }
+    init_progress(job_id, step_total=2)
+    update_progress(job_id, "pip", detail="准备安装 Playwright…", step_done=0, percent=0)
     _trim_jobs()
-    asyncio.create_task(_execute_playwright_install(job_id))
+    task = asyncio.create_task(_execute_playwright_install(job_id))
+    _async_tasks[job_id] = task
     return job_id
+
+
+def _playwright_percent(phase: str, line: str, step_done: int) -> int:
+    lower = line.lower()
+    if phase == "pip":
+        if "installing" in lower or "collecting" in lower:
+            return 25
+        return 10 + step_done * 15
+    if "downloading" in lower or "chromium" in lower or "msedge" in lower:
+        return 55
+    if "playwright" in lower:
+        return 45
+    return 35 + step_done * 25
 
 
 async def _execute_playwright_install(job_id: str) -> None:
     from osint_toolkit.services import dependencies
 
     log: list[str] = []
+    phase = "pip"
 
     def _append(msg: str) -> None:
         log.append(msg)
         job = _jobs.get(job_id)
         if job:
             job["log"] = list(log)
+        pct = _playwright_percent(phase, msg, int(get_progress(job_id).get("step_done") or 0) if get_progress(job_id) else 0)
+        update_progress(
+            job_id,
+            phase,
+            detail=msg[:160],
+            percent=min(95, pct),
+        )
+
+    def _on_progress(stage: str, detail: str, step_done: int, percent: int) -> None:
+        nonlocal phase
+        phase = stage
+        update_progress(job_id, stage, detail=detail, step_done=step_done, percent=percent)
 
     try:
-        result = await dependencies.install_playwright(log_lines=log)
+        result = await dependencies.install_playwright(log_lines=log, on_log=_append, on_progress=_on_progress)
+        update_progress(job_id, "done", detail="Playwright 安装完成", step_done=2, percent=100)
         _jobs[job_id] = {
             "status": "done",
             "kind": "playwright_install",
@@ -228,3 +330,10 @@ async def _execute_playwright_install(job_id: str) -> None:
         }
         _jobs.move_to_end(job_id)
         _trim_jobs()
+    finally:
+        clear_progress(job_id)
+        _async_tasks.pop(job_id, None)
+
+
+def job_public_view(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
+    return _job_payload(job_id, job)
