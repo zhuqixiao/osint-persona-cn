@@ -107,6 +107,10 @@ async def run_full_sync(
     emit({"step": "extension-flush", "ok": True, "hint": flush_hint})
 
     ok = accounts_count > 0 or bool(bs_result and bs_result.get("accepted"))
+    if ok:
+        from osint_toolkit.services.setup import record_full_sync
+
+        record_full_sync()
     return {
         "ok": ok,
         "count": accounts_count + int((bs_result or {}).get("accepted") or 0),

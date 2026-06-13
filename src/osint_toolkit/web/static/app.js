@@ -241,16 +241,20 @@ async function loadSetupWizard() {
     el.classList.remove("hidden");
     const steps = (data.steps || [])
       .map(
-        (s) =>
-          `<li class="${s.done ? "done" : "pending"}"><a href="${s.href}">${escapeHtml(s.label)}</a><span class="muted">${escapeHtml(s.detail)}</span></li>`
+        (s) => {
+          const badge = s.required === false ? ' <span class="muted">(可选)</span>' : "";
+          return `<li class="${s.done ? "done" : "pending"}"><a href="${s.href}">${escapeHtml(s.label)}</a>${badge}<span class="muted">${escapeHtml(s.detail)}</span></li>`;
+        }
       )
       .join("");
+    const tagline = data.tagline ? `<p class="muted">${escapeHtml(data.tagline)}</p>` : "";
     el.innerHTML = `
       <div class="setup-header">
-        <h2>首次使用向导</h2>
+        <h2>入门向导</h2>
         <button type="button" class="btn btn-ghost btn-sm" id="setup-dismiss">稍后再说</button>
       </div>
-      <p class="muted">建议按顺序完成以下步骤，画像模拟与个性化搜罗才准确。</p>
+      ${tagline}
+      <p class="muted">按顺序完成<strong>加粗步骤</strong>后，画像模拟与个性化搜罗更准确。</p>
       <ol class="setup-steps">${steps}</ol>
     `;
     document.getElementById("setup-dismiss")?.addEventListener("click", async () => {
@@ -940,6 +944,7 @@ async function rollbackPersona(version) {
 /* 导入 */
 function initIngest() {
   checkAuthBanner();
+  loadSetupWizard();
   loadIngestHealth();
   document.getElementById("btn-ingest-browser")?.addEventListener("click", async () => {
     const days = parseInt(document.getElementById("browser-since").value, 10) || 90;
@@ -1033,6 +1038,8 @@ function initIngest() {
           el.innerHTML = msg;
           if (job.steps?.length) renderSteps(job.steps);
           loadIngestHealth();
+          loadSetupWizard();
+          initGlobalSidebar();
           return;
         }
         throw new Error(job.detail || "同步失败");

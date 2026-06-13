@@ -20,15 +20,16 @@ def _nav_context(active: str) -> dict:
     return {
         "nav_groups": [
             {
-                "label": "采集",
+                "label": "工作台",
                 "links": [
                     {"id": "workspace", "label": "搜罗", "href": "/"},
-                    {"id": "save", "label": "收录", "href": "/save"},
                 ],
             },
             {
-                "label": "沉淀",
+                "label": "数据",
                 "links": [
+                    {"id": "ingest", "label": "行为同步", "href": "/ingest"},
+                    {"id": "behavior", "label": "行为时间线", "href": "/behavior"},
                     {"id": "knowledge", "label": "知识库", "href": "/knowledge"},
                     {"id": "digest", "label": "简报", "href": "/digest"},
                 ],
@@ -36,20 +37,13 @@ def _nav_context(active: str) -> dict:
             {
                 "label": "画像",
                 "links": [
-                    {"id": "ingest", "label": "行为同步", "href": "/ingest"},
-                    {"id": "behavior", "label": "行为时间线", "href": "/behavior"},
                     {"id": "persona", "label": "心智画像", "href": "/persona"},
-                ],
-            },
-            {
-                "label": "审计",
-                "links": [
-                    {"id": "runs", "label": "运行记录", "href": "/runs"},
                 ],
             },
             {
                 "label": "系统",
                 "links": [
+                    {"id": "runs", "label": "运行记录", "href": "/runs"},
                     {"id": "ai", "label": "AI 控制", "href": "/ai"},
                     {"id": "settings", "label": "设置", "href": "/settings"},
                 ],
