@@ -97,6 +97,8 @@ sync:
   browser_sync_cdp_url: http://127.0.0.1:9222
   browser_sync_headless: true
   aicu_enabled: false
+  browser_history_enabled: true
+  browser_history_since_days: 90
 
 ingest:
   aicu_enabled: false

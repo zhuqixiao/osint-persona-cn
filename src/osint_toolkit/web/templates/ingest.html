@@ -32,7 +32,8 @@
 
 <div class="card mb-1" id="extension">
   <h2>推荐：一键完整同步</h2>
-  <p class="muted">等价于 CLI <code>osint sync</code>：预检 → B站/知乎 API → Playwright 补洞 → 可选 AICU → 提示上传扩展队列。</p>
+  <p class="muted">一条路径完成行为导入：<strong>Cookie 预检 → B站/知乎 API → Edge 浏览历史 → Playwright 补洞 → 提示上传扩展队列</strong>（等价 CLI <code>osint sync</code>）。</p>
+  <p class="muted">日常上网轨迹：扩展自动记录；完整同步会合并 Edge 历史与扩展队列，共同写入画像。</p>
   <div class="form-row mt-1">
     <button id="btn-ingest-full-sync" class="btn btn-primary" type="button">开始完整同步</button>
     <button id="btn-extension-refresh" class="btn btn-secondary" type="button">刷新状态</button>
@@ -69,6 +70,7 @@
   <div class="grid-2 mt-1">
     <div>
       <h3>浏览器历史</h3>
+      <p class="muted">完整同步已默认导入最近 90 天 Edge 历史；此处可单独重跑或改天数。</p>
       <div class="form-row">
         <label for="browser-since">最近天数</label>
         <input type="number" id="browser-since" value="90" min="1" max="365">

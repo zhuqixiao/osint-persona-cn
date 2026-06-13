@@ -57,7 +57,32 @@ async def run_full_sync(
         persona = await maybe_auto_rebuild_persona()
         steps[-1]["persona_rebuild"] = persona
 
-    # 3. browser-sync job (inline when enabled)
+    # 3. Edge 浏览历史（画像信号，与扩展被动浏览互补）
+    browser_count = 0
+    if cfg.get("browser_history_enabled", True):
+        since_days = int(cfg.get("browser_history_since_days") or 90)
+        try:
+            browser_result = ingest.ingest_browser(since_days=since_days)
+            browser_count = int(browser_result.get("count") or 0)
+            if browser_result.get("warnings"):
+                warnings.extend(browser_result["warnings"])
+            emit(
+                {
+                    "step": "browser-history",
+                    "ok": True,
+                    "count": browser_count,
+                    "since_days": since_days,
+                    "skipped": browser_count == 0 and not browser_result.get("warnings"),
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            msg = f"Edge 浏览历史导入失败: {exc}"
+            warnings.append(msg)
+            emit({"step": "browser-history", "ok": False, "error": str(exc)})
+    else:
+        emit({"step": "browser-history", "ok": True, "skipped": True, "reason": "browser_history_enabled=false"})
+
+    # 4. browser-sync job (inline when enabled)
     bs_result: dict[str, Any] | None = None
     if cfg.get("browser_sync_enabled", True):
         try:
@@ -84,7 +109,7 @@ async def run_full_sync(
     else:
         emit({"step": "browser-sync", "ok": True, "skipped": True, "reason": "browser_sync_enabled=false"})
 
-    # 4. optional AICU
+    # 5. optional AICU
     aicu_result: dict[str, Any] | None = None
     if cfg.get("aicu_enabled", False):
         probe = await _probe_aicu()
@@ -106,14 +131,15 @@ async def run_full_sync(
     flush_hint = _extension_flush_hint()
     emit({"step": "extension-flush", "ok": True, "hint": flush_hint})
 
-    ok = accounts_count > 0 or bool(bs_result and bs_result.get("accepted"))
+    ok = accounts_count > 0 or browser_count > 0 or bool(bs_result and bs_result.get("accepted"))
+    total_count = accounts_count + browser_count + int((bs_result or {}).get("accepted") or 0)
     if ok:
         from osint_toolkit.services.setup import record_full_sync
 
         record_full_sync()
     return {
         "ok": ok,
-        "count": accounts_count + int((bs_result or {}).get("accepted") or 0),
+        "count": total_count,
         "steps": steps,
         "warnings": warnings,
         "extension_flush_hint": flush_hint,

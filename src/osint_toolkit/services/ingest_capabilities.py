@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 CAPABILITIES: list[dict[str, Any]] = [
-    {"platform": "browser", "behavior": "浏览历史", "status": "supported", "note": "Edge 本地 SQLite"},
+    {"platform": "browser", "behavior": "浏览历史", "status": "supported", "note": "Edge SQLite；完整同步默认导入最近 90 天，参与画像"},
     {
         "platform": "extension",
         "behavior": "被动浏览 + 停留",

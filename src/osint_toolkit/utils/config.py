@@ -192,6 +192,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "page_gap_ms": 8000,
         "probe_pages_enabled": True,
         "aicu_enabled": False,
+        "browser_history_enabled": True,
+        "browser_history_since_days": 90,
     },
     "ingest": {
         "aicu_enabled": False,

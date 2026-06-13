@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import shutil
 from typing import Any
 
-from osint_toolkit.services import auth as auth_service
+from osint_toolkit.auth.cookie_sync import validate_domain_cookie
 from osint_toolkit.services import ingest as ingest_service
 from osint_toolkit.services import ingest_capabilities
 from osint_toolkit.storage.sqlite import connect
@@ -56,7 +55,9 @@ def platform_coverage() -> list[dict[str, Any]]:
         "zhihu_browse": ("zhihu", "浏览"),
         "zhihu_follow": ("zhihu", "关注"),
         "github_star": ("github", "Star"),
-        "page_view": ("extension", "浏览"),
+        "ext_page_visit": ("extension", "浏览"),
+        "ext_page_dwell": ("extension", "停留"),
+        "browser_visit": ("browser", "Edge 历史"),
         "dwell_save": ("extension", "停留收录"),
     }
     conn = connect()
@@ -75,26 +76,42 @@ def platform_coverage() -> list[dict[str, Any]]:
 
 
 async def get_health_status() -> dict[str, Any]:
-    auth_items = auth_service.get_auth_status()
-    auth_map = {x["key"]: x for x in auth_items}
+    """行为同步页专用：不探测 DeepSeek，避免无关 API 拖慢加载。"""
     preflight = await ingest_service.ingest_preflight()
     sync_cfg = load_sync_config()
     playwright_ok = _playwright_available()
+    bili_cookie = validate_domain_cookie("bilibili.com")
+    zh_cookie = validate_domain_cookie("zhihu.com")
+    login = preflight.get("login") or {}
+
+    auth_map = {
+        "bilibili": {
+            "ok": bool(bili_cookie.get("ok") and (login.get("bilibili") or {}).get("ok")),
+            "detail": bili_cookie.get("reason") or (login.get("bilibili") or {}).get("detail"),
+        },
+        "zhihu": {
+            "ok": bool(zh_cookie.get("ok") and (login.get("zhihu") or {}).get("ok")),
+            "detail": zh_cookie.get("reason") or (login.get("zhihu") or {}).get("detail"),
+        },
+    }
 
     blockers: list[str] = []
     warnings: list[str] = []
 
-    if not auth_map.get("bilibili", {}).get("ok"):
-        blockers.append("B站 Cookie 未就绪（需 SESSDATA）")
-    if not auth_map.get("zhihu", {}).get("ok"):
-        blockers.append("知乎 Cookie 未就绪（需 z_c0）")
+    if not auth_map["bilibili"]["ok"] and not auth_map["zhihu"]["ok"]:
+        blockers.append("B站与知乎均未就绪：请用扩展同步 Cookie 或检查登录态")
+    elif not auth_map["bilibili"]["ok"]:
+        warnings.append("B站 Cookie 未就绪或已过期（SESSDATA）")
+    elif not auth_map["zhihu"]["ok"]:
+        warnings.append("知乎 Cookie 未就绪或已过期（z_c0）")
+
     if sync_cfg.get("browser_sync_enabled") and not playwright_ok:
-        blockers.append("Playwright 未安装（browser-sync 不可用）")
-    if not playwright_ok:
-        warnings.append("Playwright 未安装：知乎/微信搜罗回退与浏览器补洞不可用，可在设置页一键安装")
+        warnings.append("Playwright 未安装：浏览器补洞不可用，可在设置页一键安装")
+
     if not preflight.get("ready"):
         for hint in preflight.get("hints") or []:
-            warnings.append(hint)
+            if hint not in warnings:
+                warnings.append(hint)
 
     partial = [
         c for c in ingest_capabilities.CAPABILITIES if c.get("status") == "partial"

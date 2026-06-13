@@ -23,6 +23,19 @@ _HIGH_VALUE_TYPES = frozenset(
 )
 
 
+_INTEREST_HOSTS = (
+    "bilibili.com",
+    "zhihu.com",
+    "github.com",
+    "v2ex.com",
+    "juejin.cn",
+    "sspai.com",
+    "huxiu.com",
+    "36kr.com",
+    "weixin.qq.com",
+)
+
+
 def score_event(event_type: str, data: dict[str, Any]) -> int:
     score = 0
     if event_type in _HIGH_VALUE_TYPES:
@@ -43,7 +56,12 @@ def score_event(event_type: str, data: dict[str, Any]) -> int:
             score += 60
         score += min(ms // 15_000, 40)
     if event_type == "ext_page_visit":
-        score += 5
+        score += 10
+    if event_type == "browser_visit":
+        score += 12
+        url = str(data.get("url") or "")
+        if any(host in url for host in _INTEREST_HOSTS):
+            score += 10
     if data.get("via") == "extension" and data.get("event_kind") in ("like", "favorite", "comment_like"):
         score += 20
     if data.get("event_kind") == "comment_post":

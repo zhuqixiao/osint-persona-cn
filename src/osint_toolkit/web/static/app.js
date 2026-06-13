@@ -1004,7 +1004,8 @@ function initIngest() {
     }
     const stepLabels = {
       preflight: "Cookie 预检",
-      "accounts-sync": "服务端拉取",
+      "accounts-sync": "B站/知乎 API",
+      "browser-history": "Edge 浏览历史",
       "browser-sync": "浏览器补洞",
       aicu: "AICU 发评",
       "extension-flush": "扩展上报",
@@ -1017,6 +1018,7 @@ function initIngest() {
           const icon = s.ok ? "✓" : s.skipped ? "○" : "…";
           let detail = "";
           if (s.step === "accounts-sync" && s.count != null) detail = ` ${s.count} 条`;
+          if (s.step === "browser-history" && s.count != null) detail = ` ${s.count} 条`;
           if (s.step === "browser-sync" && s.accepted != null) {
             detail = ` ${s.accepted} 条`;
             if (s.mode_used) detail += ` (${s.mode_used})`;

@@ -73,3 +73,22 @@ def log_event(event_type: str, data: dict[str, Any]) -> None:
     )
     conn.commit()
     conn.close()
+
+
+def log_event_deduped(event_type: str, data: dict[str, Any], dedup_key: str) -> bool:
+    """写入 events；dedup_key 已存在则跳过。返回是否新写入。"""
+    conn = connect()
+    cur = conn.execute(
+        "INSERT OR IGNORE INTO event_dedup (dedup_key, event_type) VALUES (?, ?)",
+        (dedup_key, event_type),
+    )
+    if cur.rowcount == 0:
+        conn.close()
+        return False
+    conn.execute(
+        "INSERT INTO events (event_type, data_json) VALUES (?, ?)",
+        (event_type, json.dumps(data, ensure_ascii=False)),
+    )
+    conn.commit()
+    conn.close()
+    return True
