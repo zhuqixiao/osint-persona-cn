@@ -14,6 +14,7 @@ from osint_toolkit.services import (
     ai_config,
     auth,
     browser_sync,
+    dependencies,
     digest,
     events,
     extension,
@@ -48,7 +49,14 @@ from osint_toolkit.web.schemas import (
     SyncCookiesRequest,
 )
 from osint_toolkit.utils.config import load_sync_config
-from osint_toolkit.web.tasks import get_job, get_job_result, start_browser_sync_job, start_full_sync_job, start_search_job
+from osint_toolkit.web.tasks import (
+    get_job,
+    get_job_result,
+    start_browser_sync_job,
+    start_full_sync_job,
+    start_playwright_install_job,
+    start_search_job,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -288,6 +296,31 @@ async def api_setup_sync_config() -> dict[str, Any]:
 async def api_setup_dismiss() -> dict[str, Any]:
     setup.dismiss_setup()
     return {"ok": True}
+
+
+@router.get("/setup/dependencies")
+async def api_setup_dependencies() -> dict[str, Any]:
+    return dependencies.get_dependencies_status()
+
+
+@router.post("/setup/install-playwright")
+async def api_install_playwright() -> dict[str, Any]:
+    job_id = start_playwright_install_job()
+    return {"job_id": job_id, "status": "running"}
+
+
+@router.get("/setup/install-playwright/{job_id}")
+async def api_install_playwright_status(job_id: str) -> dict[str, Any]:
+    job = get_job(job_id)
+    if not job or job.get("kind") != "playwright_install":
+        raise HTTPException(404, detail="job not found")
+    return {
+        "job_id": job_id,
+        "status": job.get("status"),
+        "log": job.get("log") or [],
+        "result": job.get("result"),
+        "error": job.get("error"),
+    }
 
 
 @router.post("/ingest/zhihu")

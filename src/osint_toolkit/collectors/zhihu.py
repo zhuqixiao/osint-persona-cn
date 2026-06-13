@@ -110,17 +110,13 @@ class ZhihuCollector(BaseCollector):
                     seen.add(item.url)
                     items.append(item)
         except Exception as exc:  # noqa: BLE001
-            for fallback in (self._playwright_search, self._site_search, self._local_event_search):
-                items = await fallback(query, limit if not aggressive else per_type)
-                if items:
-                    return items if aggressive else items[:limit]
+            items = await self._run_search_fallbacks(query, limit if not aggressive else per_type)
+            if items:
+                return items if aggressive else items[:limit]
             raise RuntimeError(f"知乎搜索 API 不可用 ({exc})；回退也无结果") from exc
 
         if not items:
-            for fallback in (self._playwright_search, self._site_search, self._local_event_search):
-                items = await fallback(query, limit if not aggressive else per_type)
-                if items:
-                    break
+            items = await self._run_search_fallbacks(query, limit if not aggressive else per_type)
 
         expanded = await self.expand_questions(items)
         if expanded:
@@ -255,6 +251,16 @@ class ZhihuCollector(BaseCollector):
                 comments=obj.get("comment_count", 0),
             ),
         )
+
+    async def _run_search_fallbacks(self, query: str, limit: int) -> list[IntelItem]:
+        for fallback in (self._playwright_search, self._site_search, self._local_event_search):
+            try:
+                items = await fallback(query, limit)
+            except Exception:  # noqa: BLE001
+                continue
+            if items:
+                return items
+        return []
 
     async def _playwright_search(self, query: str, limit: int) -> list[IntelItem]:
         """在真实浏览器上下文中调用 search_v3（自动附带 x-zse-96）。"""

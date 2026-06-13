@@ -90,6 +90,8 @@ async def get_health_status() -> dict[str, Any]:
         blockers.append("知乎 Cookie 未就绪（需 z_c0）")
     if sync_cfg.get("browser_sync_enabled") and not playwright_ok:
         blockers.append("Playwright 未安装（browser-sync 不可用）")
+    if not playwright_ok:
+        warnings.append("Playwright 未安装：知乎/微信搜罗回退与浏览器补洞不可用，可在设置页一键安装")
     if not preflight.get("ready"):
         for hint in preflight.get("hints") or []:
             warnings.append(hint)

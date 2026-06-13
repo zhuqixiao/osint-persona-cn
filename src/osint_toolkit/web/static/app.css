@@ -586,6 +586,17 @@ textarea { min-height: 100px; resize: vertical; font-family: inherit; }
 .table th { color: var(--muted); font-weight: 600; background: var(--bg-subtle); }
 
 .status-ok { color: var(--success); font-weight: 600; }
+.status-fail { color: var(--danger); font-weight: 600; }
+
+.dep-list { display: flex; flex-direction: column; gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
+.dep-item { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.85rem 1rem; background: var(--bg-subtle); }
+.dep-item.ok { border-color: #6ee7b7; background: #f0fdf4; }
+.dep-item.fail { border-color: #fca5a5; background: #fef2f2; }
+.dep-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.dep-title { font-weight: 600; font-size: 0.95rem; }
+.dep-meta { font-size: 0.85rem; color: var(--muted); margin-top: 0.35rem; }
+.dep-hint { font-size: 0.85rem; margin-top: 0.5rem; color: var(--text-secondary); }
+.dep-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
 
 /* Setup wizard */
 .setup-wizard { border: 1px solid var(--accent-soft); background: linear-gradient(135deg, #f0fdfa 0%, #fff 100%); }

@@ -24,16 +24,22 @@ def test_setup_status_has_sync_step(tmp_path, monkeypatch):
     monkeypatch.setattr("osint_toolkit.services.setup.is_persona_stale", lambda: False)
     monkeypatch.setattr("osint_toolkit.services.setup._extension_connected", lambda: False)
     monkeypatch.setattr("osint_toolkit.services.setup._has_search_run", lambda: False)
+    monkeypatch.setattr(
+        "osint_toolkit.services.dependencies.get_dependencies_status",
+        lambda: {"playwright_installed": False, "items": [], "blockers": []},
+    )
+    monkeypatch.setattr("osint_toolkit.services.dependencies.playwright_available", lambda: False)
 
     status = get_setup_status()
     ids = [s["id"] for s in status["steps"]]
-    assert ids == ["cookies", "sync", "extension", "search", "persona"]
-    assert status["steps"][1]["id"] == "sync"
-    assert status["steps"][1]["done"] is False
+    assert ids == ["deepseek", "playwright", "cookies", "sync", "extension", "search", "persona"]
+    sync_step = next(s for s in status["steps"] if s["id"] == "sync")
+    assert sync_step["done"] is False
 
     record_full_sync()
     status2 = get_setup_status()
-    assert status2["steps"][1]["done"] is True
+    sync_step2 = next(s for s in status2["steps"] if s["id"] == "sync")
+    assert sync_step2["done"] is True
 
 
 class _FakeConn:

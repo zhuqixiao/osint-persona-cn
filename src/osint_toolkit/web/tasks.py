@@ -175,3 +175,51 @@ async def _execute_full_sync(job_id: str) -> None:
         }
         _jobs.move_to_end(job_id)
         _trim_jobs()
+
+
+def start_playwright_install_job() -> str:
+    job_id = new_run_id()
+    _jobs[job_id] = {
+        "status": "running",
+        "kind": "playwright_install",
+        "log": [],
+        "result": None,
+        "error": None,
+    }
+    _trim_jobs()
+    asyncio.create_task(_execute_playwright_install(job_id))
+    return job_id
+
+
+async def _execute_playwright_install(job_id: str) -> None:
+    from osint_toolkit.services import dependencies
+
+    log: list[str] = []
+
+    def _append(msg: str) -> None:
+        log.append(msg)
+        job = _jobs.get(job_id)
+        if job:
+            job["log"] = list(log)
+
+    try:
+        result = await dependencies.install_playwright(log_lines=log)
+        _jobs[job_id] = {
+            "status": "done",
+            "kind": "playwright_install",
+            "log": log,
+            "result": result,
+            "error": None,
+        }
+        _jobs.move_to_end(job_id)
+        _trim_jobs()
+    except Exception as exc:  # noqa: BLE001
+        _jobs[job_id] = {
+            "status": "error",
+            "kind": "playwright_install",
+            "log": log,
+            "result": None,
+            "error": str(exc),
+        }
+        _jobs.move_to_end(job_id)
+        _trim_jobs()

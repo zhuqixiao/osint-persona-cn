@@ -56,6 +56,11 @@ def get_setup_status() -> dict[str, Any]:
     zhihu_ok = any(i.get("key") == "zhihu" and i.get("ok") for i in auth_items)
     cookies_ok = bilibili_ok or zhihu_ok
 
+    from osint_toolkit.services.dependencies import get_dependencies_status, playwright_available
+
+    deps = get_dependencies_status()
+    playwright_ok = playwright_available()
+
     event_count = 0
     event_types: dict[str, int] = {}
     conn = connect()
@@ -82,6 +87,22 @@ def get_setup_status() -> dict[str, Any]:
         sync_detail += f"，上次完整同步 {last_sync[:19].replace('T', ' ')} UTC"
 
     steps = [
+        {
+            "id": "deepseek",
+            "label": "配置 DeepSeek API",
+            "done": deepseek_ok,
+            "required": False,
+            "detail": "环境变量 DEEPSEEK_API_KEY；设置页有说明",
+            "href": "/settings#deps",
+        },
+        {
+            "id": "playwright",
+            "label": "安装 Playwright",
+            "done": playwright_ok,
+            "required": False,
+            "detail": "知乎/微信搜罗回退与浏览器补洞；设置页可一键安装",
+            "href": "/settings#deps",
+        },
         {
             "id": "cookies",
             "label": "同步 Cookie",
@@ -135,6 +156,8 @@ def get_setup_status() -> dict[str, Any]:
         "persona_version": persona_version,
         "persona_stale": is_persona_stale(),
         "auth": {"deepseek": deepseek_ok, "bilibili": bilibili_ok, "zhihu": zhihu_ok},
+        "playwright_installed": playwright_ok,
+        "dependencies": deps,
         "tagline": "日常上网 → 一键同步 → 搜罗情报 → 构建画像",
     }
 

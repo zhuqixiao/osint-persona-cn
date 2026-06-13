@@ -461,7 +461,12 @@ function showSourceErrors(errors, resultsEl) {
     banner.className = "alert alert-warn";
     resultsEl.prepend(banner);
   }
-  banner.innerHTML = `部分来源采集失败：${errors.map((e) => `${escapeHtml(e.source)}: ${escapeHtml(e.error)}`).join("；")}`;
+  const needsPlaywright = errors.some((e) => /playwright/i.test(String(e.error || "")));
+  const needsCookie = errors.some((e) => /cookie|401|403|z_c0|SESSDATA/i.test(String(e.error || "")));
+  let extra = "";
+  if (needsPlaywright) extra += ' <a href="/settings#deps">去设置一键安装 Playwright</a>';
+  if (needsCookie) extra += ' <a href="/settings">去设置同步 Cookie</a>';
+  banner.innerHTML = `部分来源采集失败：${errors.map((e) => `${escapeHtml(e.source)}: ${escapeHtml(e.error)}`).join("；")}。${extra}`;
 }
 
 async function renderSearchResults(result, resultsEl, reportEl, runId) {
@@ -1400,6 +1405,7 @@ async function resetPrompt() {
 
 /* 设置 */
 function initSettings() {
+  loadDependenciesChecklist();
   loadOperationsRunbook();
   loadAuthStatus();
   loadPaths();
@@ -1411,6 +1417,88 @@ function initSettings() {
     const text = pre.textContent.replace(/&amp;/g, "&");
     navigator.clipboard.writeText(text).then(() => alert("已复制 Edge CDP 启动命令"));
   });
+}
+
+function renderDepItem(item) {
+  const statusClass = item.ok ? "ok" : "fail";
+  const statusText = item.ok ? "就绪" : "待配置";
+  const forLine = item.required_for?.length
+    ? `<div class="dep-meta">影响：${item.required_for.map(escapeHtml).join("、")}</div>`
+    : "";
+  let actions = "";
+  if (!item.ok && item.action === "install_playwright") {
+    actions = `<div class="dep-actions"><button type="button" class="btn btn-sm btn-install-playwright">一键安装 Playwright</button></div>`;
+  } else if (!item.ok && item.action === "sync_cookies") {
+    actions = `<div class="dep-actions"><button type="button" class="btn btn-sm btn-sync-cookies-inline">同步 Cookie</button></div>`;
+  }
+  return `<li class="dep-item ${statusClass}">
+    <div class="dep-head">
+      <span class="dep-title">${escapeHtml(item.label)}</span>
+      <span class="${item.ok ? "status-ok" : "status-fail"}">${statusText}</span>
+    </div>
+    <div class="dep-meta">${escapeHtml(item.detail || "")}</div>
+    ${forLine}
+    ${item.hint ? `<div class="dep-hint">${escapeHtml(item.hint)}</div>` : ""}
+    ${actions}
+  </li>`;
+}
+
+async function pollPlaywrightInstall(jobId, resultEl) {
+  for (let i = 0; i < 120; i += 1) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const job = await api("GET", `/api/setup/install-playwright/${jobId}`);
+    const logTail = (job.log || []).slice(-3).map(escapeHtml).join("<br>");
+    resultEl.innerHTML = `<div class="alert alert-warn">安装中…<br><span class="muted">${logTail}</span></div>`;
+    if (job.status === "running") continue;
+    if (job.status === "done") {
+      resultEl.innerHTML = `<div class="alert alert-success">Playwright 安装完成。请重新搜罗或同步 Cookie 测试。</div>`;
+      loadDependenciesChecklist();
+      loadAuthStatus();
+      return;
+    }
+    resultEl.innerHTML = `<div class="alert alert-error">${escapeHtml(job.error || "安装失败")}</div>`;
+    return;
+  }
+  resultEl.innerHTML = `<div class="alert alert-error">安装超时（>4 分钟），请查看 Web 启动窗口或手动运行 scripts/install-browser-sync.ps1</div>`;
+}
+
+async function installPlaywrightFromSettings(resultEl) {
+  resultEl.innerHTML = `<div class="alert alert-warn">正在安装 Playwright（pip + Edge 驱动），约 1–3 分钟…</div>`;
+  const start = await api("POST", "/api/setup/install-playwright", {});
+  if (!start.job_id) throw new Error("未返回 job_id");
+  await pollPlaywrightInstall(start.job_id, resultEl);
+}
+
+async function loadDependenciesChecklist() {
+  const listEl = document.getElementById("deps-checklist");
+  const actionsEl = document.getElementById("deps-actions");
+  if (!listEl) return;
+  try {
+    const data = await api("GET", "/api/setup/dependencies");
+    const blockers = (data.blockers || []).filter(Boolean);
+    const summary = blockers.length
+      ? `<div class="alert alert-warn mb-1">${blockers.map(escapeHtml).join("<br>")}</div>`
+      : `<div class="alert alert-success mb-1">核心环境就绪，可开始搜罗（个别来源仍可能需要 Cookie）。</div>`;
+    listEl.innerHTML = `${summary}<ul class="dep-list">${(data.items || []).map(renderDepItem).join("")}</ul>`;
+    if (actionsEl) {
+      actionsEl.innerHTML = `<div id="playwright-install-result"></div>`;
+    }
+    listEl.querySelectorAll(".btn-install-playwright").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const resultEl = document.getElementById("playwright-install-result") || actionsEl;
+        try {
+          await installPlaywrightFromSettings(resultEl);
+        } catch (err) {
+          resultEl.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
+        }
+      });
+    });
+    listEl.querySelectorAll(".btn-sync-cookies-inline").forEach((btn) => {
+      btn.addEventListener("click", syncCookies);
+    });
+  } catch (err) {
+    listEl.textContent = err.message;
+  }
 }
 
 async function loadOperationsRunbook() {
@@ -1481,6 +1569,7 @@ async function syncCookies() {
       el.textContent = `已同步: ${synced}`;
     }
     loadAuthStatus();
+    loadDependenciesChecklist();
   } catch (err) {
     el.className = "alert alert-error";
     el.textContent = err.message;
