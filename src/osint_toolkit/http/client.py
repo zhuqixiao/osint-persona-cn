@@ -37,13 +37,17 @@ class HttpClient:
         return headers
 
     async def get(self, url: str, **kwargs: Any) -> httpx.Response:
+        headers = self._headers(url)
+        extra = kwargs.pop("headers", None)
+        if extra:
+            headers = {**headers, **extra}
         async with httpx.AsyncClient(
             timeout=self.timeout,
             proxy=self._proxy,
             follow_redirects=True,
             trust_env=False,
         ) as client:
-            return await client.get(url, headers=self._headers(url), **kwargs)
+            return await client.get(url, headers=headers, **kwargs)
 
     async def get_text(self, url: str) -> str:
         resp = await self.get(url)

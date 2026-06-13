@@ -73,3 +73,14 @@ ingest:
   browser_sync_max_pages: 6
 
 # AI 持久导向建议放在用户目录: %USERPROFILE%\.osint\ai_directives.yaml
+
+# 搜索引擎（搜罗 web 源 + 知乎 site: 回退）
+search:
+  serp:
+    primary: auto          # auto | bing_api | serpapi | bing_html | baidu_html
+    fallbacks: [bing_html, baidu_html]
+    bing_api_key: ${BING_SEARCH_API_KEY}
+    serpapi_key: ${SERPAPI_KEY}
+    site_searches: [github.com, bilibili.com]
+    web_fetch_content: true
+    web_fetch_top: 5

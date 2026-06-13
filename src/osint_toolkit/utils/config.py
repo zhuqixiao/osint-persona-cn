@@ -101,6 +101,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "discover_probe_limit": 5,
         "discover_sources": ["bilibili", "zhihu", "web", "v2ex"],
         "persist_discovered_aliases": True,
+        "serp": {
+            "primary": "auto",
+            "fallbacks": ["bing_html", "baidu_html"],
+            "bing_api_key": "${BING_SEARCH_API_KEY}",
+            "serpapi_key": "${SERPAPI_KEY}",
+            "site_searches": ["github.com", "bilibili.com"],
+            "web_fetch_content": True,
+            "web_fetch_top": 5,
+        },
     },
     "extension": {
         "dwell_save_enabled": True,
@@ -172,6 +181,15 @@ def get_cookie_sync_config() -> dict[str, Any]:
 
 def get_search_config() -> dict[str, Any]:
     return dict(load_config().get("search", {}))
+
+
+def get_serp_config() -> dict[str, Any]:
+    search = get_search_config()
+    serp = dict(search.get("serp") or {})
+    defaults = dict(DEFAULT_CONFIG.get("search", {}).get("serp") or {})
+    merged = dict(defaults)
+    merged.update(serp)
+    return merged
 
 
 def get_extension_sync_config() -> dict[str, Any]:

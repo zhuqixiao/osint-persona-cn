@@ -49,40 +49,15 @@ class ZhihuCollector(BaseCollector):
         return items[:limit]
 
     async def _bing_site_search(self, query: str, limit: int) -> list[IntelItem]:
-        """search_v3 被风控时，用 Bing site:zhihu.com 回退。"""
-        url = f"https://www.bing.com/search?q={quote(f'site:zhihu.com {query}')}&setlang=zh-Hans"
-        items: list[IntelItem] = []
-        try:
-            html = await self.client.get_text(url)
-            soup = BeautifulSoup(html, "html.parser")
-            seen: set[str] = set()
-            for li in soup.select("li.b_algo"):
-                a = li.find("a")
-                if not a or not a.get("href"):
-                    continue
-                href = a["href"]
-                if "zhihu.com" not in href or href in seen:
-                    continue
-                seen.add(href)
-                title = a.get_text(strip=True)
-                snippet = ""
-                p = li.find("p")
-                if p:
-                    snippet = p.get_text(strip=True)
-                item_type = "answer" if "/answer/" in href else "article" if "/p/" in href else "snippet"
-                items.append(
-                    IntelItem(
-                        source="zhihu",
-                        type=item_type,
-                        url=href,
-                        title=title,
-                        content=snippet,
-                    )
-                )
-                if len(items) >= limit:
-                    break
-        except Exception:  # noqa: BLE001
-            return []
+        """search_v3 被风控时，用 SERP site:zhihu.com 回退（支持多引擎轮换）。"""
+        from osint_toolkit.collectors.serp.engine import SerpEngine, hits_to_items
+
+        engine = SerpEngine(client=self.client)
+        hits, _ = await engine.site_search("zhihu.com", query, limit=limit)
+        items = hits_to_items(hits, source="zhihu")
+        for item in items:
+            href = item.url
+            item.type = "answer" if "/answer/" in href else "article" if "/p/" in href else "snippet"
         return items
 
     async def _local_event_search(self, query: str, limit: int) -> list[IntelItem]:
