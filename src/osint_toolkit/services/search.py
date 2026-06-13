@@ -66,6 +66,35 @@ def _source_label(name: str) -> str:
     return _SOURCE_LABELS.get(name, name)
 
 
+def _collect_target_url(source: str, query: str) -> str:
+    from urllib.parse import quote
+
+    q = quote(query, safe="")
+    urls = {
+        "bilibili": f"https://search.bilibili.com/all?keyword={q}",
+        "zhihu": f"https://www.zhihu.com/search?type=content&q={q}",
+        "web": f"https://www.bing.com/search?q={q}",
+        "v2ex": f"https://www.google.com/search?q=site:v2ex.com+{q}",
+        "weixin": f"https://weixin.sogou.com/weixin?type=2&query={q}",
+    }
+    return urls.get(source, "")
+
+
+def _recent_url_entries(items: list[Any], existing: list[dict[str, str]], *, limit: int = 5) -> list[dict[str, str]]:
+    recent = list(existing or [])
+    seen = {str(r.get("url") or "") for r in recent}
+    for item in items:
+        url = str(getattr(item, "url", "") or "")
+        if not url.startswith("http") or url in seen:
+            continue
+        title = str(getattr(item, "title", "") or url)[:100]
+        recent.insert(0, {"url": url, "title": title})
+        seen.add(url)
+        if len(recent) >= limit:
+            break
+    return recent[:limit]
+
+
 
 async def _collect_source(name: str, query: str, limit: int) -> list[IntelItem]:
 
@@ -508,10 +537,22 @@ async def run_search(
     per_limit = per_query_limit(limit, len(queries_used))
 
     collect_total = max(1, len(queries_used) * len(collect_sources))
+    items_lock = asyncio.Lock()
+    shared_items: list[IntelItem] = []
 
     async def collect_all() -> dict[str, Any]:
 
         async def collect_one(source_name: str, q: str) -> tuple[str, str, list[IntelItem] | None, Exception | None]:
+            short_q = q if len(q) <= 36 else q[:33] + "…"
+            update_progress(
+                run_id,
+                "collect_all",
+                detail=f"正在请求 {_source_label(source_name)} · {short_q}",
+                current_url=_collect_target_url(source_name, q),
+                current_source=source_name,
+                current_query=q,
+                collect_total=collect_total,
+            )
             try:
                 group = await _collect_source(source_name, q, per_limit)
                 return source_name, q, group, None
@@ -522,38 +563,62 @@ async def run_search(
             (source_name, q) for q in queries_used for source_name in collect_sources
         ]
         pending = [collect_one(source_name, q) for source_name, q in task_meta]
-        items: list[IntelItem] = []
         source_errors: list[dict[str, str]] = []
         for name in unknown_sources:
             source_errors.append({"source": name, "error": "未知来源（已忽略）", "query": query})
 
+        import time
+
+        collect_started = time.perf_counter()
         done = 0
+        recent_urls: list[dict[str, str]] = []
         for finished in asyncio.as_completed(pending):
             source_name, q, group, err = await finished
             done += 1
             short_q = q if len(q) <= 36 else q[:33] + "…"
-            update_progress(
-                run_id,
-                "collect_all",
-                detail=f"{_source_label(source_name)} · {short_q}（{done}/{collect_total}）",
-            )
+            async with items_lock:
+                items_found = len(shared_items)
             if err is not None:
                 source_errors.append({"source": source_name, "error": str(err), "query": q})
-                continue
-            if isinstance(group, list):
+            elif isinstance(group, list):
                 for item in group:
                     matched = item.personal.get("matched_queries") or []
                     if q not in matched:
                         matched.append(q)
                     item.personal["matched_queries"] = matched
-                items.extend(group)
+                async with items_lock:
+                    shared_items.extend(group)
+                    recent_urls = _recent_url_entries(group, recent_urls)
+                    items_found = len(shared_items)
 
-        return {"items": items, "source_errors": source_errors}
+            elapsed = time.perf_counter() - collect_started
+            eta_sec = int((elapsed / done) * (collect_total - done)) if done > 0 else None
+            sample_url = ""
+            if isinstance(group, list) and group:
+                sample_url = str(group[0].url or "")
+            update_progress(
+                run_id,
+                "collect_all",
+                detail=f"{_source_label(source_name)} · {short_q}（{done}/{collect_total}）",
+                collect_done=done,
+                collect_total=collect_total,
+                items_found=items_found,
+                eta_sec=eta_sec,
+                current_url=sample_url or _collect_target_url(source_name, q),
+                recent_urls=recent_urls,
+            )
+
+        return {"items": list(shared_items), "source_errors": source_errors}
 
     update_progress(
         run_id,
         "collect_all",
         detail=f"多源采集（共 {collect_total} 项）…",
+        collect_done=0,
+        collect_total=collect_total,
+        items_found=0,
+        eta_sec=None,
+        current_url="",
     )
 
     step_collect = await _record_step(
@@ -604,10 +669,11 @@ async def run_search(
 
 
 
-    update_progress(run_id, "dedup", detail="去重与相关度打分…")
+    update_progress(run_id, "dedup", detail="去重与相关度打分…", items_found=len(items))
     step_dedup = runner.run_step("dedup", dedup, artifact_name="items_dedup.json")
 
     items = step_dedup.data or []
+    update_progress(run_id, "dedup", detail=f"去重后 {len(items)} 条", items_found=len(items))
 
 
 

@@ -14,6 +14,12 @@ def init_progress(run_id: str) -> None:
         "detail": "正在启动搜罗任务…",
         "started_at": datetime.now(UTC).isoformat(),
         "completed_steps": [],
+        "collect_done": 0,
+        "collect_total": 0,
+        "items_found": 0,
+        "eta_sec": None,
+        "current_url": "",
+        "recent_urls": [],
     }
 
 
@@ -31,6 +37,7 @@ def update_progress(
     *,
     detail: str = "",
     mark_completed: dict[str, Any] | None = None,
+    **extra: Any,
 ) -> None:
     if not run_id:
         return
@@ -50,3 +57,6 @@ def update_progress(
         completed = list(state.get("completed_steps") or [])
         completed.append(mark_completed)
         state["completed_steps"] = completed
+    for key, val in extra.items():
+        if val is not None:
+            state[key] = val

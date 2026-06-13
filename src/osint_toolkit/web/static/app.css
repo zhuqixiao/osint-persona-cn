@@ -416,6 +416,35 @@ textarea { min-height: 100px; resize: vertical; font-family: inherit; }
 .search-progress-step { margin: 0.25rem 0; }
 .search-progress-step.search-step-error { color: var(--danger); }
 .search-progress-check { color: var(--success); margin-right: 0.25rem; }
+.search-progress-main { flex: 1; min-width: 0; }
+.search-progress-bar {
+  margin-top: 0.75rem;
+  height: 6px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.search-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), #6366f1);
+  border-radius: 999px;
+  transition: width 0.35s ease;
+}
+.search-progress-stats { margin-top: 0.45rem; font-size: 0.88rem; }
+.search-progress-url {
+  margin-top: 0.45rem;
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+.search-progress-recent {
+  margin: 0.5rem 0 0;
+  padding-left: 1rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.search-progress-recent a { color: var(--text-muted); }
+.search-source-errors { margin-top: 0.75rem; font-size: 0.88rem; }
+#btn-search-submit:disabled { opacity: 0.72; cursor: wait; }
 
 .results-layout {
   display: grid;

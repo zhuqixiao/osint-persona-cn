@@ -212,6 +212,23 @@ function formatElapsedMs(ms) {
   return m > 0 ? `${m}:${String(s).padStart(2, "0")}` : `${s}s`;
 }
 
+function formatEtaSeconds(sec) {
+  if (sec == null || sec === "" || Number.isNaN(Number(sec))) return "";
+  const n = Math.max(0, Math.ceil(Number(sec)));
+  if (n <= 3) return "即将完成";
+  if (n < 60) return `约 ${n} 秒`;
+  if (n < 3600) return `约 ${Math.ceil(n / 60)} 分钟`;
+  return `约 ${Math.ceil(n / 3600)} 小时`;
+}
+
+function setSearchBusy(busy) {
+  const btn = document.getElementById("btn-search-submit");
+  if (!btn) return;
+  btn.disabled = busy;
+  btn.textContent = busy ? "搜罗中…" : "开始搜罗";
+  btn.setAttribute("aria-busy", busy ? "true" : "false");
+}
+
 function normalizeStepName(raw) {
   return String(raw || "")
     .replace(/^\d+_/, "")
@@ -226,6 +243,15 @@ function renderSearchProgressPanel(container, state) {
   const startedAt = state.startedAt ? new Date(state.startedAt).getTime() : Date.now();
   const elapsed = formatElapsedMs(Date.now() - startedAt);
   const completed = state.completedSteps || [];
+  const collectDone = Number(state.collectDone) || 0;
+  const collectTotal = Number(state.collectTotal) || 0;
+  const itemsFound = Number(state.itemsFound) || 0;
+  const eta = formatEtaSeconds(state.etaSec);
+  const pct = collectTotal > 0 ? Math.min(100, Math.round((collectDone / collectTotal) * 100)) : 0;
+  const showBar = phase === "collect_all" && collectTotal > 0;
+  const currentUrl = (state.currentUrl || "").trim();
+  const recent = state.recentUrls || [];
+
   const stepsHtml = completed
     .map((s) => {
       const name = stepLabel(normalizeStepName(s.step));
@@ -235,22 +261,64 @@ function renderSearchProgressPanel(container, state) {
       return `<li class="search-progress-step done${err}"><span class="search-progress-check">✓</span> ${escapeHtml(name)}${escapeHtml(ms)}${summary}</li>`;
     })
     .join("");
+
+  const statsParts = [];
+  if (itemsFound > 0) statsParts.push(`已找到 ${itemsFound} 条`);
+  if (showBar) statsParts.push(`${collectDone}/${collectTotal}`);
+  if (eta) statsParts.push(`剩余 ${eta}`);
+  const statsHtml = statsParts.length
+    ? `<div class="search-progress-stats muted">${escapeHtml(statsParts.join(" · "))}</div>`
+    : "";
+
+  const barHtml = showBar
+    ? `<div class="search-progress-bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><div class="search-progress-bar-fill" style="width:${pct}%"></div></div>`
+    : "";
+
+  const urlHtml = currentUrl.startsWith("http")
+    ? `<div class="search-progress-url muted">当前：<a href="${escapeHtml(currentUrl)}" target="_blank" rel="noopener">${escapeHtml(currentUrl.length > 72 ? `${currentUrl.slice(0, 69)}…` : currentUrl)}</a></div>`
+    : "";
+
+  const recentHtml = recent.length
+    ? `<ul class="search-progress-recent">${recent
+        .slice(0, 4)
+        .map(
+          (r) =>
+            `<li><a href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${escapeHtml((r.title || r.url || "").slice(0, 60))}</a></li>`
+        )
+        .join("")}</ul>`
+    : "";
+
   container.innerHTML = `
     <div class="search-progress card card-flat">
       <div class="search-progress-head">
         <span class="search-progress-spinner" aria-hidden="true"></span>
-        <div>
+        <div class="search-progress-main">
           <div class="search-progress-phase">${escapeHtml(label)}</div>
           <div class="search-progress-detail muted">${escapeHtml(detail || "处理中…")}</div>
         </div>
-        <span class="search-progress-elapsed muted">${escapeHtml(elapsed)}</span>
+        <span class="search-progress-elapsed muted" title="已用时间">${escapeHtml(elapsed)}</span>
       </div>
+      ${barHtml}
+      ${statsHtml}
+      ${urlHtml}
+      ${recentHtml}
       ${stepsHtml ? `<ol class="search-progress-steps">${stepsHtml}</ol>` : ""}
     </div>`;
 }
 
 function mountSearchProgress(container) {
-  const state = { phase: "starting", detail: "正在启动…", startedAt: new Date().toISOString(), completedSteps: [] };
+  const state = {
+    phase: "starting",
+    detail: "正在启动…",
+    startedAt: new Date().toISOString(),
+    completedSteps: [],
+    collectDone: 0,
+    collectTotal: 0,
+    itemsFound: 0,
+    etaSec: null,
+    currentUrl: "",
+    recentUrls: [],
+  };
   renderSearchProgressPanel(container, state);
   const timer = setInterval(() => {
     if (!container.querySelector(".search-progress")) {
@@ -265,6 +333,12 @@ function mountSearchProgress(container) {
       if (progress.detail) state.detail = progress.detail;
       if (progress.started_at) state.startedAt = progress.started_at;
       if (progress.completed_steps) state.completedSteps = progress.completed_steps;
+      if (progress.collect_done != null) state.collectDone = progress.collect_done;
+      if (progress.collect_total != null) state.collectTotal = progress.collect_total;
+      if (progress.items_found != null) state.itemsFound = progress.items_found;
+      if (progress.eta_sec != null) state.etaSec = progress.eta_sec;
+      if (progress.current_url != null) state.currentUrl = progress.current_url;
+      if (progress.recent_urls) state.recentUrls = progress.recent_urls;
       renderSearchProgressPanel(container, state);
     },
     stop() {
@@ -442,18 +516,32 @@ async function runSearch() {
   const countEl = document.getElementById("results-count");
   const askSection = document.getElementById("ask-section");
 
+  const query = document.getElementById("search-query").value.trim();
+  const sources = [...document.querySelectorAll("input[name='sources']:checked")].map((el) => el.value);
+  if (!query) {
+    resultsEl.innerHTML = "<div class='alert alert-warn'>请输入要搜罗的话题</div>";
+    return;
+  }
+  if (!sources.length) {
+    resultsEl.innerHTML = "<div class='alert alert-warn'>请至少勾选一个来源</div>";
+    return;
+  }
+
+  setSearchBusy(true);
   resultsEl.innerHTML = "";
   const progressUi = mountSearchProgress(resultsEl);
   stepsEl.innerHTML = "<span class='step-pill active'>准备中</span>";
   if (countEl) countEl.textContent = "";
+  const digestOn = document.getElementById("opt-digest").checked;
   if (reportEl) {
-    reportEl.innerHTML = "<p class='muted'>报告生成中…</p>";
+    reportEl.innerHTML = digestOn
+      ? "<p class='muted'>情报报告将在搜罗完成后生成…</p>"
+      : "<p class='muted'>未勾选「生成情报报告」；完成后可逐条查看结果与反馈。</p>";
   }
   if (askSection) askSection.classList.add("hidden");
 
-  const sources = [...document.querySelectorAll("input[name='sources']:checked")].map((el) => el.value);
   const body = {
-    query: document.getElementById("search-query").value.trim(),
+    query,
     sources,
     limit: parseInt(document.getElementById("search-limit").value, 10) || 10,
     digest: document.getElementById("opt-digest").checked,
@@ -477,9 +565,16 @@ async function runSearch() {
     subscribeSearchEvents(run_id, resultsEl, stepsEl, reportEl, progressUi);
   } catch (err) {
     progressUi?.stop();
+    setSearchBusy(false);
     resultsEl.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
     stepsEl.innerHTML = "";
   }
+}
+
+function finishSearchRun(progressUi, onDone) {
+  progressUi?.stop();
+  setSearchBusy(false);
+  if (typeof onDone === "function") onDone();
 }
 
 function subscribeSearchEvents(runId, resultsEl, stepsEl, reportEl, progressUi) {
@@ -519,19 +614,29 @@ function subscribeSearchEvents(runId, resultsEl, stepsEl, reportEl, progressUi) 
       showSourceErrors(msg.errors || [], resultsEl);
     }
     if (msg.type === "done") {
-      progressUi?.stop();
-      es.close();
-      if (activePill) {
-        activePill.classList.remove("active");
-        activePill.classList.add("done");
-        activePill.textContent = "完成";
-      }
-      void renderSearchResults(msg.result, resultsEl, reportEl, runId);
+      finishSearchRun(progressUi, () => {
+        es.close();
+        if (activePill) {
+          activePill.classList.remove("active");
+          activePill.classList.add("done");
+          activePill.textContent = "完成";
+        }
+        void renderSearchResults(msg.result, resultsEl, reportEl, runId);
+      });
     }
     if (msg.type === "error") {
-      progressUi?.stop();
-      es.close();
-      resultsEl.innerHTML = `<div class="alert alert-error">${escapeHtml(msg.error)}</div>`;
+      finishSearchRun(progressUi, () => {
+        es.close();
+        resultsEl.innerHTML = `<div class="alert alert-error">${escapeHtml(msg.error)}</div>`;
+        stepsEl.innerHTML = "";
+      });
+    }
+    if (msg.type === "timeout") {
+      finishSearchRun(progressUi, () => {
+        es.close();
+        resultsEl.innerHTML =
+          "<div class='alert alert-warn'>搜罗耗时较长，任务可能仍在后台运行。可点「查看运行记录」或稍后刷新本页。</div>";
+      });
     }
   };
 
@@ -540,9 +645,10 @@ function subscribeSearchEvents(runId, resultsEl, stepsEl, reportEl, progressUi) 
       .then((r) => r.json())
       .then((data) => {
         if (data.status === "done" && data.items) {
-          progressUi?.stop();
-          es.close();
-          void renderSearchResults(data, resultsEl, reportEl, runId);
+          finishSearchRun(progressUi, () => {
+            es.close();
+            void renderSearchResults(data, resultsEl, reportEl, runId);
+          });
         }
       })
       .catch(() => {});
@@ -556,8 +662,9 @@ function showSourceErrors(errors, resultsEl) {
   if (!banner) {
     banner = document.createElement("div");
     banner.id = id;
-    banner.className = "alert alert-warn";
-    resultsEl.prepend(banner);
+    banner.className = "alert alert-warn search-source-errors";
+    const host = resultsEl.querySelector(".search-progress") || resultsEl;
+    host.appendChild(banner);
   }
   const needsPlaywright = errors.some((e) => /playwright/i.test(String(e.error || "")));
   const needsCookie = errors.some((e) => /cookie|401|403|z_c0|SESSDATA/i.test(String(e.error || "")));
@@ -1092,7 +1199,12 @@ function initIngest() {
   document.getElementById("btn-ingest-full-sync")?.addEventListener("click", async () => {
     const el = document.getElementById("ingest-full-sync-result");
     const progress = document.getElementById("ingest-full-sync-progress");
+    const btn = document.getElementById("btn-ingest-full-sync");
     if (!el) return;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "同步中…";
+    }
     el.className = "alert alert-warn mt-1";
     el.textContent = "启动完整同步…";
     if (progress) {
@@ -1160,6 +1272,11 @@ function initIngest() {
     } catch (err) {
       el.className = "alert alert-error mt-1";
       el.textContent = err.message;
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "开始完整同步";
+      }
     }
   });
   document.getElementById("btn-ingest-accounts-sync")?.addEventListener("click", async () => {
