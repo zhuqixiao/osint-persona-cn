@@ -1,4 +1,4 @@
-# 一键启动 OSINT Web 控制台 / Launch local web UI
+﻿# Launch local OSINT Web UI (UTF-8 with BOM for Windows PowerShell 5.1)
 param(
     [int]$Port = 8787,
     [string]$HostName = "127.0.0.1",
@@ -26,11 +26,11 @@ function Get-PythonExe {
     if ($py) {
         $ver = & $py.Source -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
         if ([version]$ver -ge [version]"3.14") {
-            throw "检测到 Python $ver（不支持 rookiepy/Cookie 同步）。请使用 $Root\.venv 或安装 Python 3.12"
+            throw "检测到 Python $ver (不支持 rookiepy/Cookie 同步). 请使用 $Root\.venv 或安装 Python 3.12"
         }
         return $py.Source
     }
-    throw "未找到 Python。请在项目目录创建 .venv：python -m venv .venv"
+    throw "未找到 Python. 请在项目目录创建 .venv: python -m venv .venv"
 }
 
 function Test-RookiePy($pythonExe) {
@@ -55,15 +55,15 @@ function Test-PortInUse {
 Write-Banner
 
 if (Test-ServerHealthy) {
-    Write-Host "服务已在运行（检测到新版 API）。" -ForegroundColor Green
+    Write-Host "服务已在运行 (检测到新版 API)." -ForegroundColor Green
     if (-not $NoBrowser) { Start-Process $Url }
-    Write-Host "关闭本窗口不会停止服务；要停止请运行「停止情报台.bat」。" -ForegroundColor Yellow
+    Write-Host "关闭本窗口不会停止服务; 要停止请运行 [停止情报台.bat]." -ForegroundColor Yellow
     exit 0
 }
 
 if (Test-PortInUse) {
-    Write-Host "端口 $Port 已被占用，但 API 不是当前版本（可能是旧服务）。" -ForegroundColor Yellow
-    Write-Host "请先运行「停止情报台.bat」，再重新启动。" -ForegroundColor Yellow
+    Write-Host "端口 $Port 已被占用, 但 API 不是当前版本 (可能是旧服务)." -ForegroundColor Yellow
+    Write-Host "请先运行 [停止情报台.bat], 再重新启动." -ForegroundColor Yellow
     exit 1
 }
 
@@ -74,11 +74,11 @@ Set-Location $Root
 $pyVer = & $python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"
 Write-Host "Python: $python ($pyVer)" -ForegroundColor DarkGray
 if (-not (Test-RookiePy $python)) {
-    Write-Host "警告: 当前 Python 未安装 rookiepy，设置页「同步 Cookie」会失败。请用 .venv 或运行 sync-cookies.bat" -ForegroundColor Yellow
+    Write-Host "警告: 当前 Python 未安装 rookiepy, 设置页 [同步 Cookie] 会失败. 请用 .venv 或运行 sync-cookies.bat" -ForegroundColor Yellow
 }
-Write-Host "正在启动…（保持此窗口打开；Ctrl+C 停止服务）" -ForegroundColor Green
-Write-Host "首次拉取 B站+知乎 约需 2–4 分钟，请勿关闭窗口。" -ForegroundColor DarkGray
-Write-Host "浏览器补洞需 Playwright：首次请运行 scripts/install-browser-sync.ps1" -ForegroundColor DarkGray
+Write-Host "正在启动... (保持此窗口打开; Ctrl+C 停止服务)" -ForegroundColor Green
+Write-Host "首次拉取 B站+知乎 约需 2-4 分钟, 请勿关闭窗口." -ForegroundColor DarkGray
+Write-Host "浏览器补洞需 Playwright: 首次请运行 scripts/install-browser-sync.ps1" -ForegroundColor DarkGray
 Write-Host ""
 
 if (-not $NoBrowser) {

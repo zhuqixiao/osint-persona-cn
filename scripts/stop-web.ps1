@@ -1,11 +1,11 @@
-# 停止本机 8787 上的 OSINT Web 服务
+﻿# Stop OSINT Web service on local port (UTF-8 with BOM for Windows PowerShell 5.1)
 param([int]$Port = 8787)
 
 $pids = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
     Select-Object -ExpandProperty OwningProcess -Unique
 
 if (-not $pids) {
-    Write-Host "端口 $Port 上没有正在监听的服务。" -ForegroundColor Yellow
+    Write-Host "端口 $Port 上没有正在监听的服务." -ForegroundColor Yellow
     exit 0
 }
 
@@ -19,4 +19,4 @@ foreach ($procId in $pids) {
     }
 }
 
-Write-Host "已停止。" -ForegroundColor Green
+Write-Host "已停止." -ForegroundColor Green
