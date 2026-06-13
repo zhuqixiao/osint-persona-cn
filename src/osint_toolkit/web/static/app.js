@@ -182,14 +182,20 @@ async function loadPersonaStaleBanner() {
 }
 
 const STEP_LABELS = {
+  starting: "准备",
   collect_all: "多源采集",
   alias_discover: "联网发现关联词",
   ai_query_analyze: "查询分析",
-  dedup: "去重",
+  dedup: "去重打分",
   mine_comments: "评论挖掘",
   ai_summarize: "AI 摘要",
   persona_simulate: "画像模拟",
+  ai_report: "情报报告",
 };
+
+function stepLabel(name) {
+  return STEP_LABELS[name] || name;
+}
 
 const SOURCE_LABELS = {
   zhihu: "知乎",
@@ -199,8 +205,72 @@ const SOURCE_LABELS = {
   rss: "RSS",
 };
 
-function stepLabel(name) {
-  return STEP_LABELS[name] || name;
+function formatElapsedMs(ms) {
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return m > 0 ? `${m}:${String(s).padStart(2, "0")}` : `${s}s`;
+}
+
+function normalizeStepName(raw) {
+  return String(raw || "")
+    .replace(/^\d+_/, "")
+    .replace(/\.json$/, "");
+}
+
+function renderSearchProgressPanel(container, state) {
+  if (!container) return;
+  const phase = normalizeStepName(state.phase);
+  const label = stepLabel(phase);
+  const detail = state.detail || "";
+  const startedAt = state.startedAt ? new Date(state.startedAt).getTime() : Date.now();
+  const elapsed = formatElapsedMs(Date.now() - startedAt);
+  const completed = state.completedSteps || [];
+  const stepsHtml = completed
+    .map((s) => {
+      const name = stepLabel(normalizeStepName(s.step));
+      const ms = s.duration_ms != null ? ` · ${(s.duration_ms / 1000).toFixed(1)}s` : "";
+      const summary = s.summary ? ` — ${escapeHtml(String(s.summary))}` : "";
+      const err = s.status === "error" ? " search-step-error" : "";
+      return `<li class="search-progress-step done${err}"><span class="search-progress-check">✓</span> ${escapeHtml(name)}${escapeHtml(ms)}${summary}</li>`;
+    })
+    .join("");
+  container.innerHTML = `
+    <div class="search-progress card card-flat">
+      <div class="search-progress-head">
+        <span class="search-progress-spinner" aria-hidden="true"></span>
+        <div>
+          <div class="search-progress-phase">${escapeHtml(label)}</div>
+          <div class="search-progress-detail muted">${escapeHtml(detail || "处理中…")}</div>
+        </div>
+        <span class="search-progress-elapsed muted">${escapeHtml(elapsed)}</span>
+      </div>
+      ${stepsHtml ? `<ol class="search-progress-steps">${stepsHtml}</ol>` : ""}
+    </div>`;
+}
+
+function mountSearchProgress(container) {
+  const state = { phase: "starting", detail: "正在启动…", startedAt: new Date().toISOString(), completedSteps: [] };
+  renderSearchProgressPanel(container, state);
+  const timer = setInterval(() => {
+    if (!container.querySelector(".search-progress")) {
+      clearInterval(timer);
+      return;
+    }
+    renderSearchProgressPanel(container, state);
+  }, 1000);
+  return {
+    update(progress) {
+      if (progress.phase) state.phase = progress.phase;
+      if (progress.detail) state.detail = progress.detail;
+      if (progress.started_at) state.startedAt = progress.started_at;
+      if (progress.completed_steps) state.completedSteps = progress.completed_steps;
+      renderSearchProgressPanel(container, state);
+    },
+    stop() {
+      clearInterval(timer);
+    },
+  };
 }
 
 function sourceLabel(name) {
@@ -372,7 +442,8 @@ async function runSearch() {
   const countEl = document.getElementById("results-count");
   const askSection = document.getElementById("ask-section");
 
-  resultsEl.innerHTML = "<div class='empty-state'>正在搜罗，请稍候…</div>";
+  resultsEl.innerHTML = "";
+  const progressUi = mountSearchProgress(resultsEl);
   stepsEl.innerHTML = "<span class='step-pill active'>准备中</span>";
   if (countEl) countEl.textContent = "";
   if (reportEl) {
@@ -403,37 +474,62 @@ async function runSearch() {
     runLink.classList.remove("hidden");
     runLink.textContent = "查看运行记录";
 
-    subscribeSearchEvents(run_id, resultsEl, stepsEl, reportEl);
+    subscribeSearchEvents(run_id, resultsEl, stepsEl, reportEl, progressUi);
   } catch (err) {
+    progressUi?.stop();
     resultsEl.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
     stepsEl.innerHTML = "";
   }
 }
 
-function subscribeSearchEvents(runId, resultsEl, stepsEl, reportEl) {
+function subscribeSearchEvents(runId, resultsEl, stepsEl, reportEl, progressUi) {
   const seen = new Set();
+  let activePill = stepsEl.querySelector(".step-pill.active");
   const es = new EventSource(`/api/search/${runId}/events`);
+
+  function markStepDone(stepName) {
+    const key = normalizeStepName(stepName);
+    if (seen.has(key)) return;
+    seen.add(key);
+    if (activePill) {
+      activePill.classList.remove("active");
+      activePill.classList.add("done");
+      activePill.textContent = stepLabel(key);
+    }
+    activePill = document.createElement("span");
+    activePill.className = "step-pill active";
+    activePill.textContent = "进行中…";
+    stepsEl.appendChild(activePill);
+  }
 
   es.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
+    if (msg.type === "progress" && msg.progress) {
+      progressUi?.update(msg.progress);
+      const phase = normalizeStepName(msg.progress.phase);
+      if (activePill && phase) {
+        activePill.textContent = stepLabel(phase);
+      }
+    }
     if (msg.type === "step") {
       const step = msg.step?.step || msg.file;
-      if (!seen.has(step)) {
-        seen.add(step);
-        const pill = document.createElement("span");
-        pill.className = "step-pill done";
-        pill.textContent = stepLabel(String(step).replace(/^\d+_/, "").replace(/\.json$/, ""));
-        stepsEl.appendChild(pill);
-      }
+      markStepDone(String(step).replace(/^\d+_/, "").replace(/\.json$/, ""));
     }
     if (msg.type === "source_error") {
       showSourceErrors(msg.errors || [], resultsEl);
     }
     if (msg.type === "done") {
+      progressUi?.stop();
       es.close();
+      if (activePill) {
+        activePill.classList.remove("active");
+        activePill.classList.add("done");
+        activePill.textContent = "完成";
+      }
       void renderSearchResults(msg.result, resultsEl, reportEl, runId);
     }
     if (msg.type === "error") {
+      progressUi?.stop();
       es.close();
       resultsEl.innerHTML = `<div class="alert alert-error">${escapeHtml(msg.error)}</div>`;
     }
@@ -444,6 +540,7 @@ function subscribeSearchEvents(runId, resultsEl, stepsEl, reportEl) {
       .then((r) => r.json())
       .then((data) => {
         if (data.status === "done" && data.items) {
+          progressUi?.stop();
           es.close();
           void renderSearchResults(data, resultsEl, reportEl, runId);
         }

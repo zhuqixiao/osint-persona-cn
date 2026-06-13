@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from osint_toolkit.auth.paths import get_data_dir
 from osint_toolkit.models.intel_item import IntelItem
-from osint_toolkit.services import search as search_service
+from osint_toolkit.pipeline.progress import clear_progress, init_progress
 
 _MAX_JOBS = 50
 _jobs: OrderedDict[str, dict[str, Any]] = OrderedDict()
@@ -86,12 +86,15 @@ def _load_result_from_disk(run_id: str) -> dict[str, Any] | None:
 def start_search_job(**kwargs: Any) -> str:
     run_id = new_run_id()
     _jobs[run_id] = {"status": "running", "result": None, "error": None}
+    init_progress(run_id)
     _trim_jobs()
     asyncio.create_task(_execute_search(run_id, **kwargs))
     return run_id
 
 
 async def _execute_search(run_id: str, **kwargs: Any) -> None:
+    from osint_toolkit.services import search as search_service
+
     try:
         result = await search_service.run_search(**kwargs, run_id=run_id)
         _jobs[run_id] = {"status": "done", "result": result, "error": None}
@@ -101,6 +104,8 @@ async def _execute_search(run_id: str, **kwargs: Any) -> None:
         _jobs[run_id] = {"status": "error", "result": None, "error": str(exc)}
         _jobs.move_to_end(run_id)
         _trim_jobs()
+    finally:
+        clear_progress(run_id)
 
 
 def get_job_result(run_id: str) -> dict[str, Any] | None:

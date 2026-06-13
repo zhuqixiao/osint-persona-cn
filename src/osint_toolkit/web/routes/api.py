@@ -127,12 +127,21 @@ async def api_search_result(run_id: str) -> dict[str, Any]:
 
 @router.get("/search/{run_id}/events")
 async def api_search_events(run_id: str) -> StreamingResponse:
+    from osint_toolkit.pipeline.progress import get_progress
+
     run_dir = get_data_dir() / "runs" / run_id
 
     async def event_stream():
         seen: set[str] = set()
-        for _ in range(300):
+        last_progress: str | None = None
+        for _ in range(600):
             job = get_job(run_id)
+            progress = get_progress(run_id)
+            if progress:
+                progress_key = json.dumps(progress, ensure_ascii=False, sort_keys=True)
+                if progress_key != last_progress:
+                    last_progress = progress_key
+                    yield f"data: {json.dumps({'type': 'progress', 'progress': progress}, ensure_ascii=False)}\n\n"
             if run_dir.exists():
                 for path in sorted(run_dir.glob("*_*.json")):
                     if path.name == "manifest.json" or path.name in seen:
@@ -159,7 +168,7 @@ async def api_search_events(run_id: str) -> StreamingResponse:
                 yield f"data: {json.dumps({'type': 'error', 'error': job['error']}, ensure_ascii=False)}\n\n"
                 break
             yield f"data: {json.dumps({'type': 'ping'})}\n\n"
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
         else:
             yield f"data: {json.dumps({'type': 'timeout'})}\n\n"
 

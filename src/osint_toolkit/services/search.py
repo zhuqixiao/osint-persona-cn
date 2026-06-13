@@ -45,9 +45,25 @@ from osint_toolkit.models.intel_item import IntelItem
 
 from osint_toolkit.pipeline.context import RunContext
 
+from osint_toolkit.pipeline.progress import update_progress
+
 from osint_toolkit.pipeline.runner import PipelineRunner
 
 from osint_toolkit.utils.config import get_search_config, load_config
+
+
+_SOURCE_LABELS = {
+    "zhihu": "知乎",
+    "bilibili": "B站",
+    "web": "网页",
+    "v2ex": "V2EX",
+    "rss": "RSS",
+    "weixin": "微信",
+}
+
+
+def _source_label(name: str) -> str:
+    return _SOURCE_LABELS.get(name, name)
 
 
 
@@ -78,6 +94,14 @@ async def _record_step(runner: PipelineRunner, name: str, coro, **kwargs: Any):
     status = "ok"
 
     data: Any = None
+
+    run_id = kwargs.get("run_id")
+
+    progress_detail = str(kwargs.get("progress_detail") or "")
+
+    if run_id:
+
+        update_progress(run_id, name, detail=progress_detail or f"正在执行 {name}…")
 
     try:
 
@@ -166,6 +190,30 @@ async def _record_step(runner: PipelineRunner, name: str, coro, **kwargs: Any):
     step_file.write_text(json.dumps(step_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     runner._append_trace(result)
+
+    if run_id:
+
+        update_progress(
+
+            run_id,
+
+            name,
+
+            detail=result.output_summary or "完成",
+
+            mark_completed={
+
+                "step": name,
+
+                "duration_ms": duration_ms,
+
+                "summary": result.output_summary,
+
+                "status": status,
+
+            },
+
+        )
 
     return result
 
@@ -366,6 +414,8 @@ async def run_search(
 
 
 
+    update_progress(run_id, "starting", detail="检查 Cookie 与配置…")
+
     if cfg.get("cookie_sync", {}).get("auto_sync_before_search") and os.name == "nt":
 
         try:
@@ -375,8 +425,6 @@ async def run_search(
         except Exception:  # noqa: BLE001
 
             pass
-
-
 
     ctx_kwargs: dict[str, Any] = {
 
@@ -414,6 +462,7 @@ async def run_search(
 
     discover_meta: dict[str, Any] = {}
     if search_cfg.get("discover_aliases", True):
+        update_progress(run_id, "alias_discover", detail="联网发现关联词…")
         discover_meta = await discover_aliases(
             query,
             sources,
@@ -429,6 +478,7 @@ async def run_search(
             ai_invoked="alias_discover" not in (disabled_ai_steps or []),
         )
 
+    update_progress(run_id, "ai_query_analyze", detail="扩展查询词与来源…")
     query_analysis = expand_query(
         query,
         sources,
@@ -457,55 +507,54 @@ async def run_search(
 
     per_limit = per_query_limit(limit, len(queries_used))
 
-
+    collect_total = max(1, len(queries_used) * len(collect_sources))
 
     async def collect_all() -> dict[str, Any]:
 
-        task_meta: list[tuple[str, str]] = []
+        async def collect_one(source_name: str, q: str) -> tuple[str, str, list[IntelItem] | None, Exception | None]:
+            try:
+                group = await _collect_source(source_name, q, per_limit)
+                return source_name, q, group, None
+            except Exception as exc:  # noqa: BLE001
+                return source_name, q, None, exc
 
-        tasks = []
-
-        for q in queries_used:
-
-            for source_name in collect_sources:
-
-                task_meta.append((source_name, q))
-
-                tasks.append(_collect_source(source_name, q, per_limit))
-
-        groups = await asyncio.gather(*tasks, return_exceptions=True)
-
+        task_meta: list[tuple[str, str]] = [
+            (source_name, q) for q in queries_used for source_name in collect_sources
+        ]
+        pending = [collect_one(source_name, q) for source_name, q in task_meta]
         items: list[IntelItem] = []
-
         source_errors: list[dict[str, str]] = []
         for name in unknown_sources:
             source_errors.append({"source": name, "error": "未知来源（已忽略）", "query": query})
 
-        for (source_name, q), group in zip(task_meta, groups, strict=False):
-
-            if isinstance(group, Exception):
-
-                source_errors.append({"source": source_name, "error": str(group), "query": q})
-
+        done = 0
+        for finished in asyncio.as_completed(pending):
+            source_name, q, group, err = await finished
+            done += 1
+            short_q = q if len(q) <= 36 else q[:33] + "…"
+            update_progress(
+                run_id,
+                "collect_all",
+                detail=f"{_source_label(source_name)} · {short_q}（{done}/{collect_total}）",
+            )
+            if err is not None:
+                source_errors.append({"source": source_name, "error": str(err), "query": q})
                 continue
-
             if isinstance(group, list):
-
                 for item in group:
-
                     matched = item.personal.get("matched_queries") or []
-
                     if q not in matched:
-
                         matched.append(q)
-
                     item.personal["matched_queries"] = matched
-
                 items.extend(group)
 
         return {"items": items, "source_errors": source_errors}
 
-
+    update_progress(
+        run_id,
+        "collect_all",
+        detail=f"多源采集（共 {collect_total} 项）…",
+    )
 
     step_collect = await _record_step(
 
@@ -518,6 +567,8 @@ async def run_search(
         input_summary=f"queries={queries_used}, sources={collect_sources}, per_limit={per_limit}",
 
         artifact_name="items_raw.json",
+
+        run_id=run_id,
 
     )
 
@@ -553,6 +604,7 @@ async def run_search(
 
 
 
+    update_progress(run_id, "dedup", detail="去重与相关度打分…")
     step_dedup = runner.run_step("dedup", dedup, artifact_name="items_dedup.json")
 
     items = step_dedup.data or []
@@ -573,12 +625,17 @@ async def run_search(
 
         ai_invoked=not no_ai and comment_mine_top > 0,
 
+        run_id=run_id,
+
+        progress_detail=f"评论挖掘（top {comment_mine_top}）…" if comment_mine_top else "跳过评论挖掘",
+
     )
 
     _ = step_comments
 
 
 
+    update_progress(run_id, "ai_summarize", detail="生成条目摘要…")
     summaries = summarize_batch(
 
         items[: min(len(items), 15)],
@@ -608,7 +665,7 @@ async def run_search(
     simulations: list[dict] = []
 
     if not no_simulate:
-
+        update_progress(run_id, "persona_simulate", detail="画像兴趣模拟…")
         simulations = simulate_items(items, no_ai=no_ai, no_simulate=no_simulate)
 
         runner.run_step(
@@ -668,7 +725,7 @@ async def run_search(
 
 
     if digest:
-
+        update_progress(run_id, "ai_report", detail="撰写情报报告…")
         report_text = generate_report(
 
             query,

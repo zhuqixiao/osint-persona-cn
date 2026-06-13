@@ -387,6 +387,36 @@ textarea { min-height: 100px; resize: vertical; font-family: inherit; }
 .step-pill.done { border-color: var(--success); color: var(--success); background: #ecfdf5; }
 .step-pill.error { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
 
+.search-progress { padding: 1rem 1.1rem; }
+.search-progress-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+.search-progress-phase { font-weight: 600; font-size: 1.05rem; }
+.search-progress-detail { margin-top: 0.2rem; font-size: 0.92rem; }
+.search-progress-elapsed { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.search-progress-spinner {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.15rem;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: search-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes search-spin { to { transform: rotate(360deg); } }
+.search-progress-steps {
+  margin: 0.85rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+.search-progress-step { margin: 0.25rem 0; }
+.search-progress-step.search-step-error { color: var(--danger); }
+.search-progress-check { color: var(--success); margin-right: 0.25rem; }
+
 .results-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
