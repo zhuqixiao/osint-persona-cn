@@ -7,7 +7,8 @@ import re
 _BLOCK_PATTERNS = re.compile(
     r"captcha|人机验证|Please verify|Just a moment|访问过于频繁|412|"
     r"请输入验证码|网络不给力|security\.baidu|unusual traffic|"
-    r"confirm you're not a robot|异常流量",
+    r"confirm you're not a robot|异常流量|"
+    r"duckduckgo\.com/y\.js|anomaly-modal|sogou.*验证码",
     re.I,
 )
 

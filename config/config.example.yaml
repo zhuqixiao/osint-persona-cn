@@ -74,13 +74,19 @@ ingest:
 
 # AI 持久导向建议放在用户目录: %USERPROFILE%\.osint\ai_directives.yaml
 
-# 搜索引擎（搜罗 web 源 + 知乎 site: 回退）
+# 搜索引擎（搜罗 web 源 + 知乎/B站 site: 回退）
 search:
   serp:
-    primary: auto          # auto | bing_api | serpapi | bing_html | baidu_html
-    fallbacks: [bing_html, baidu_html]
+    primary: auto          # auto | bing_api | serpapi | searxng | bing_html | duckduckgo_html | baidu_html | sogou_html
+    strategy: fallback     # fallback | merge_html（API 仍优先，HTML 多引擎合并）
+    fallbacks: [duckduckgo_html, bing_html, baidu_html, sogou_html]
+    merge_min_hits: 5
     bing_api_key: ${BING_SEARCH_API_KEY}
     serpapi_key: ${SERPAPI_KEY}
-    site_searches: [github.com, bilibili.com]
+    searxng_base_url: ${SEARXNG_BASE_URL}   # 自建或私有 SearXNG，如 http://127.0.0.1:8080
+    duckduckgo_region: cn-zh
+    provider_delay_ms: 300
+    enabled_providers: []    # 非空时仅启用列出的 provider
+    site_searches: [github.com, bilibili.com, zhihu.com]
     web_fetch_content: true
     web_fetch_top: 5
