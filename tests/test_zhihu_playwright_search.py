@@ -11,7 +11,7 @@ from osint_toolkit.collectors.zhihu import ZhihuCollector
 async def test_zhihu_search_playwright_fallback(monkeypatch):
     col = ZhihuCollector()
 
-    async def fail_api(_query, _limit):
+    async def fail_search(*args, **kwargs):
         raise RuntimeError("api blocked")
 
     sample = {
@@ -35,7 +35,14 @@ async def test_zhihu_search_playwright_fallback(monkeypatch):
             col._parse_object(sample["data"][0]["object"]),
         ]
 
-    monkeypatch.setattr(col, "_api_search", fail_api)
+    async def fail_search(*args, **kwargs):
+        raise RuntimeError("api blocked")
+
+    async def noop_expand(items):
+        return []
+
+    monkeypatch.setattr(col, "_search_v3", fail_search)
+    monkeypatch.setattr(col, "expand_questions", noop_expand)
     monkeypatch.setattr(col, "_playwright_search", ok_pw)
 
     items = await col.search("测试", limit=5)

@@ -31,6 +31,9 @@ profiles:
   research:
     sources: [zhihu, bilibili, v2ex, web, rss]
     simulate_persona: true
+  zhihu_deep:
+    sources: [zhihu]
+    simulate_persona: false
 
 rules:
   boost_authors: []
@@ -108,6 +111,15 @@ ingest:
 # 搜索引擎（搜罗 web 源 + 知乎/B站 site: 回退）
 search:
   comment_mine_top: 12
+  zhihu_aggressive: true
+  zhihu_search_types: [general, content]
+  zhihu_search_per_type: 40
+  zhihu_search_pages: 5
+  zhihu_expand_answers: true
+  zhihu_expand_question_top: 15
+  zhihu_answers_per_question: 50
+  zhihu_comment_limit: 120
+  zhihu_comment_mine_top: 12
   serp:
     primary: auto          # auto | bing_api | serpapi | searxng | bing_html | duckduckgo_html | baidu_html | sogou_html
     strategy: fallback     # fallback | merge_html（API 仍优先，HTML 多引擎合并）
