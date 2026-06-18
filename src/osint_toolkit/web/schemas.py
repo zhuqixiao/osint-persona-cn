@@ -150,3 +150,7 @@ class BrowserSyncRequest(BaseModel):
     platforms: list[str] = Field(default_factory=lambda: ["bilibili", "zhihu"])
     mode: str = ""
     headless: bool | None = None
+
+
+class SecretSaveRequest(BaseModel):
+    value: str
