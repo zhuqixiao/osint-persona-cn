@@ -316,6 +316,11 @@ def test_connection_sync(*, client: HttpClient | None = None) -> dict[str, Any]:
         return {"ok": False, "detail": "未配置 ZHIHU_ACCESS_SECRET 或 openapi.enabled=false"}
     try:
         asyncio.get_running_loop()
-        return {"ok": True, "detail": "access_secret 已配置"}
     except RuntimeError:
         return asyncio.run(test_connection(client=client))
+
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(asyncio.run, test_connection(client=client))
+        return future.result(timeout=30)

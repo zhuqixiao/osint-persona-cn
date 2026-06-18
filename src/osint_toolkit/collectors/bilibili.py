@@ -290,6 +290,7 @@ class BilibiliCollector(BaseCollector):
         return item
 
     async def fetch(self, url: str) -> IntelItem:
+        item_type = self._type_from_url(url)
         text = await self.client.get_text(url)
         title_match = re.search(r"<title>(.*?)</title>", text, re.I | re.S)
         title = title_match.group(1).strip() if title_match else url
@@ -297,15 +298,24 @@ class BilibiliCollector(BaseCollector):
         content = desc_match.group(1).encode().decode("unicode_escape") if desc_match else ""
         item = IntelItem(
             source="bilibili",
-            type="video",
+            type=item_type,
             url=url,
             title=title,
             content=content[:12000],
         )
-        await self.enrich_video(item, page_html=text)
-        if not (item.layers.get("subtitle") or {}).get("text"):
-            item.content = (item.content + "\n\n[注: 未获取字幕，未分析画面]").strip()[:16000]
+        if item_type == "video":
+            await self.enrich_video(item, page_html=text)
+            if not (item.layers.get("subtitle") or {}).get("text"):
+                item.content = (item.content + "\n\n[注: 未获取字幕，未分析画面]").strip()[:16000]
         return item
+
+    @staticmethod
+    def _type_from_url(url: str) -> str:
+        if re.search(r"(?:/read/)?cv\d+", url, re.I):
+            return "article"
+        if re.search(r"/opus/\d+", url):
+            return "article"
+        return "video"
 
     async def enrich_video(self, item: IntelItem, *, page_html: str | None = None) -> None:
         from osint_toolkit.ingest import bilibili_sdk
@@ -337,8 +347,6 @@ class BilibiliCollector(BaseCollector):
         if not oid:
             return []
         comment_type = self._comment_type_from_url(url)
-        from osint_toolkit.ingest import bilibili_sdk
-
         if bilibili_sdk.sdk_enabled("comments"):
             try:
                 return await bilibili_sdk.fetch_comments_lazy(
@@ -417,7 +425,10 @@ class BilibiliCollector(BaseCollector):
             if data.get("code") not in (0, None):
                 return [], 0
             payload = data.get("data") or {}
-            return payload.get("replies") or [], 0
+            cursor = payload.get("cursor") or {}
+            pagination = cursor.get("pagination_reply") or {}
+            next_offset = int(pagination.get("next_offset") or 0)
+            return payload.get("replies") or [], next_offset
         except Exception:  # noqa: BLE001
             return [], 0
 

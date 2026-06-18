@@ -179,16 +179,16 @@ async def ingest_zhihu() -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         favorites = []
         warnings.append(f"收藏: {exc}")
-    try:
-        activities = await ingest_activities()
-    except Exception as exc:  # noqa: BLE001
-        activities = []
-        warnings.append(f"动态: {exc}")
     voteanswers: list[dict] = []
     try:
         voteanswers = await ingest_voteanswers()
     except Exception as exc:  # noqa: BLE001
         warnings.append(f"赞同明细: {exc}")
+    try:
+        activities = await ingest_activities(skip_answer_votes=bool(voteanswers))
+    except Exception as exc:  # noqa: BLE001
+        activities = []
+        warnings.append(f"动态: {exc}")
     followees: list[dict] = []
     try:
         followees = await ingest_followees()

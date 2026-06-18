@@ -11,6 +11,27 @@ from osint_toolkit.storage.knowledge import log_event
 logger = logging.getLogger(__name__)
 
 
+def _video_url(item: dict) -> str:
+    bvid = item.get("bvid") or item.get("bv_id") or ""
+    if bvid:
+        bvid = str(bvid).strip()
+        if bvid.startswith("http"):
+            return bvid
+        return f"https://www.bilibili.com/video/{bvid}"
+    short = item.get("short_link_v2") or item.get("short_link") or ""
+    if short:
+        return str(short)
+    aid = item.get("aid")
+    if aid:
+        return f"https://www.bilibili.com/video/av{aid}"
+    link = str(item.get("link") or item.get("uri") or "").strip()
+    if link.startswith("http"):
+        return link
+    if link.upper().startswith("BV"):
+        return f"https://www.bilibili.com/video/{link}"
+    return link
+
+
 async def _nav_mid(client: HttpClient) -> int | None:
     try:
         resp = await client.get("https://api.bilibili.com/x/web-interface/nav")
@@ -45,7 +66,7 @@ async def ingest_history(limit: int = 500) -> list[dict]:
             if not batch:
                 break
             for item in batch:
-                link = item.get("uri", "") or item.get("short_link_v2", "") or item.get("bvid", "")
+                link = _video_url(item)
                 if not link or link in seen:
                     continue
                 seen.add(link)
@@ -136,20 +157,6 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
     except Exception:  # noqa: BLE001
         pass
     return results
-
-
-
-def _video_url(item: dict) -> str:
-    bvid = item.get("bvid") or item.get("bv_id") or ""
-    if bvid:
-        return f"https://www.bilibili.com/video/{bvid}"
-    short = item.get("short_link_v2") or item.get("short_link") or ""
-    if short:
-        return short
-    aid = item.get("aid")
-    if aid:
-        return f"https://www.bilibili.com/video/av{aid}"
-    return item.get("link") or item.get("uri") or ""
 
 
 def _append_like_entries(

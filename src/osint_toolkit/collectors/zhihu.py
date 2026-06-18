@@ -25,6 +25,15 @@ class ZhihuCollector(BaseCollector):
 
     def __init__(self, client: HttpClient | None = None) -> None:
         self.client = client or HttpClient()
+        self._search_warnings: list[str] = []
+
+    def _attach_search_warnings(self, items: list[IntelItem]) -> list[IntelItem]:
+        if self._search_warnings and items:
+            items[0].personal.setdefault("collector_warnings", []).extend(self._search_warnings)
+            self._search_warnings.clear()
+        elif self._search_warnings:
+            self._search_warnings.clear()
+        return items
 
     def _zhihu_search_cfg(self) -> dict[str, Any]:
         return dict(get_search_config())
@@ -112,7 +121,9 @@ class ZhihuCollector(BaseCollector):
                     seen.add(item.url)
                     items.append(item)
             except Exception as exc:  # noqa: BLE001
-                logger.debug("zhihu openapi search failed: %s", exc)
+                msg = f"openapi 搜索失败: {exc}"
+                self._search_warnings.append(msg)
+                logger.warning(msg)
 
         need_more = aggressive and len(items) < per_type
         use_search_v3 = not items or (need_more and openapi_cfg.get("merge_search_v3", True))
@@ -148,8 +159,8 @@ class ZhihuCollector(BaseCollector):
                 seen.add(item.url)
                 items.append(item)
         if aggressive:
-            return items
-        return items[:limit]
+            return self._attach_search_warnings(items)
+        return self._attach_search_warnings(items[:limit])
 
     async def expand_questions(self, items: list[IntelItem]) -> list[IntelItem]:
         """对搜索到的提问（及回答所属提问）批量拉取高赞回答。"""
@@ -319,9 +330,6 @@ class ZhihuCollector(BaseCollector):
             else:
                 item.type = "snippet"
         return items
-
-    async def _bing_site_search(self, query: str, limit: int) -> list[IntelItem]:
-        return await self._site_search(query, limit)
 
     async def _local_event_search(self, query: str, limit: int) -> list[IntelItem]:
         """从本地 events 库匹配知乎历史行为（Cookie API 搜索被拒时的实用回退）。"""

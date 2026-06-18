@@ -35,6 +35,11 @@ async def save_url(
     elif "bilibili.com" in host:
         collector = BilibiliCollector()
         item = await collector.fetch(url)
+        if item.type == "video":
+            try:
+                await collector.enrich_video(item)
+            except Exception:  # noqa: BLE001
+                pass
         if with_comments:
             comments = await collector.fetch_comments(url)
             item.layers["comments"] = comments

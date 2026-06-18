@@ -601,6 +601,10 @@ async def run_search(
                 source_errors.append({"source": source_name, "error": str(err), "query": q})
             elif isinstance(group, list):
                 for item in group:
+                    for warning in item.personal.pop("collector_warnings", []) or []:
+                        source_errors.append(
+                            {"source": source_name, "error": f"警告: {warning}", "query": q}
+                        )
                     matched = item.personal.get("matched_queries") or []
                     if q not in matched:
                         matched.append(q)

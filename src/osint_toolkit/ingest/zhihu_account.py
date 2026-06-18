@@ -48,7 +48,7 @@ async def ingest_profile_meta() -> dict[str, Any]:
     return meta
 
 
-async def ingest_activities(limit: int = 500) -> list[dict]:
+async def ingest_activities(limit: int = 500, *, skip_answer_votes: bool = False) -> list[dict]:
     """知乎主页动态流：赞/藏/关注/发布等（activities API + 扩展补洞）。"""
     await ingest_profile_meta()
     client = HttpClient()
@@ -79,6 +79,10 @@ async def ingest_activities(limit: int = 500) -> list[dict]:
                 seen.add(key)
                 classified = classify_activity(item)
                 event_type = classified[0] if classified else "zhihu_activity"
+                if skip_answer_votes and (
+                    event_type == "zhihu_vote" or entry.get("event_kind") == "answer_vote"
+                ):
+                    continue
                 log_event(event_type, entry)
                 if event_type == "zhihu_vote":
                     save_endorsement(
