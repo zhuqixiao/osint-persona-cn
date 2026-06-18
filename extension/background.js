@@ -1,6 +1,6 @@
 importScripts("lib/config.js", "lib/platforms.js", "lib/queue.js", "lib/sync.js", "lib/aicu.js", "lib/cookies.js");
 
-const EXT_VERSION = "0.2.9";
+const EXT_VERSION = "0.3.0";
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -37,6 +37,8 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   chrome.storage.local.get(["enabled", "passiveCollect"], (data) => {
     if (data.enabled === false || data.passiveCollect === false) return;
     if (!OSINTPlatforms.isContentUrl(tab.url)) return;
+    const host = new URL(tab.url).hostname || "";
+    if (OSINTPlatforms.hookDomains.some((d) => host.includes(d))) return;
     enqueueIfEnabled({
       kind: "page_visit",
       url: tab.url,
@@ -49,18 +51,39 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || !message.kind) return;
   if (message.kind === "get_status") {
-    chrome.storage.local.get(["enabled", "passiveCollect", "backgroundSync", "apiBase", "stats"], async (data) => {
-      const pending = await EventQueue.pendingCount();
-      sendResponse({
-        enabled: data.enabled !== false,
-        passiveCollect: data.passiveCollect !== false,
-        backgroundSync: data.backgroundSync !== false,
-        apiBase: data.apiBase || OSINTConfig.defaultApiBase,
-        stats: data.stats || {},
-        platforms: OSINTPlatforms.domains,
-        pendingQueue: pending,
-      });
-    });
+    chrome.storage.local.get(
+      ["enabled", "passiveCollect", "backgroundSync", "apiBase", "stats", "lastFlushError", "lastSyncResult"],
+      async (data) => {
+        const pending = await EventQueue.pendingCount();
+        const apiBase = data.apiBase || OSINTConfig.defaultApiBase;
+        let webOnline = false;
+        let webError = "";
+        try {
+          const ping = await fetch(`${apiBase}/api/extension/ping`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ version: EXT_VERSION, enabled: data.enabled !== false, pending_queue: pending }),
+          });
+          webOnline = ping.ok;
+        } catch (err) {
+          webError = String(err.message || err);
+        }
+        sendResponse({
+          enabled: data.enabled !== false,
+          passiveCollect: data.passiveCollect !== false,
+          backgroundSync: data.backgroundSync !== false,
+          apiBase,
+          stats: data.stats || {},
+          platforms: OSINTPlatforms.domains,
+          pendingQueue: pending,
+          lastFlushError: data.lastFlushError || "",
+          lastSyncResult: data.lastSyncResult || null,
+          webOnline,
+          webError,
+          version: EXT_VERSION,
+        });
+      }
+    );
     return true;
   }
   if (message.kind === "set_enabled") {
@@ -76,7 +99,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
   if (message.kind === "flush_now") {
-    EventQueue.flush().then((result) => sendResponse(result));
+    EventQueue.flush().then((result) => {
+      pingServer();
+      sendResponse(result);
+    });
     return true;
   }
   if (message.kind === "sync_aicu") {
@@ -102,8 +128,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "flush-queue") {
-    EventQueue.flush();
-    pingServer();
+    EventQueue.flush().then(() => pingServer());
     return;
   }
   if (alarm.name === "background-sync") {
@@ -131,19 +156,35 @@ function enqueueIfEnabled(message) {
 }
 
 async function pingServer() {
+  const pending = await EventQueue.pendingCount();
+  let lastFlushError = "";
+  await new Promise((resolve) => {
+    chrome.storage.local.get(["lastFlushError"], (data) => {
+      lastFlushError = data.lastFlushError || "";
+      resolve();
+    });
+  });
   try {
     const apiBase = await OSINTConfig.getApiBase();
-    await fetch(`${apiBase}/api/extension/ping`, {
+    const resp = await fetch(`${apiBase}/api/extension/ping`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ version: EXT_VERSION, enabled: true }),
+      body: JSON.stringify({
+        version: EXT_VERSION,
+        enabled: true,
+        pending_queue: pending,
+        last_flush_error: lastFlushError,
+      }),
     });
-    try {
-      const cfgRes = await fetch(`${apiBase}/api/setup/sync-config`);
-      if (cfgRes.ok) {
-        const syncConfig = await cfgRes.json();
-        await chrome.storage.local.set({ syncConfig });
-      }
-    } catch (_) {}
+    if (resp.ok) {
+      try {
+        const cfgRes = await fetch(`${apiBase}/api/setup/sync-config`);
+        if (cfgRes.ok) {
+          const syncConfig = await cfgRes.json();
+          await chrome.storage.local.set({ syncConfig });
+        }
+      } catch (_) {}
+    }
   } catch (_) {}
+  EventQueue._updateBadge(pending, !!lastFlushError);
 }

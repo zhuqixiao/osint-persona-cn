@@ -144,6 +144,8 @@ class ExtensionEventsRequest(BaseModel):
 class ExtensionPingRequest(BaseModel):
     version: str = ""
     enabled: bool = True
+    pending_queue: int = 0
+    last_flush_error: str = ""
 
 
 class BrowserSyncRequest(BaseModel):

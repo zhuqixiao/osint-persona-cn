@@ -292,7 +292,9 @@ async function refreshMobileStatusBar() {
     const ext = await api("GET", "/api/extension/status");
     parts.push(
       ext.connected
-        ? "扩展已连接"
+        ? (ext.pending_queue > 0
+            ? `扩展待上传 ${ext.pending_queue} 条`
+            : "扩展已连接")
         : '<a href="/ingest#extension">扩展未连接</a>',
     );
   } catch (_) {
@@ -334,8 +336,10 @@ async function initGlobalSidebar() {
     try {
       const data = await api("GET", "/api/extension/status");
       if (data.connected) {
-        extChip.textContent = `扩展 ● 已连接`;
-        extChip.classList.add("ok");
+        const pending = data.pending_queue || 0;
+        extChip.textContent = pending > 0 ? `扩展 ● 待上传 ${pending}` : "扩展 ● 已连接";
+        extChip.classList.toggle("warn", pending > 0);
+        extChip.classList.toggle("ok", pending === 0);
       } else {
         extChip.innerHTML = `扩展 ○ 未连接 · <a href="/ingest#extension">安装</a>`;
         extChip.classList.add("warn");
@@ -2807,17 +2811,28 @@ async function loadExtensionStatus() {
     const data = await api("GET", "/api/extension/status");
     const connected = data.connected;
     const total = data.extension_event_count || 0;
+    const pending = data.pending_queue || 0;
+    const flushErr = data.last_flush_error || "";
+    const version = data.extension_version || "";
     const types = Object.entries(data.event_totals || {})
       .map(([k, v]) => `${EXT_EVENT_LABELS[k] || k} ${v}`)
       .join(" · ");
     el.className = "extension-status-card";
+    let queueLine = "";
+    if (pending > 0) {
+      queueLine = `<div class="alert alert-warn mt-1">扩展队列待上传 <strong>${pending}</strong> 条 · 请在扩展弹窗点「上传浏览采集队列」</div>`;
+    } else if (flushErr) {
+      queueLine = `<div class="alert alert-error mt-1">上次上传失败：${escapeHtml(flushErr.slice(0, 120))}</div>`;
+    }
     el.innerHTML = `
       <div class="preflight-row">
         <strong>${connected ? "扩展已连接" : "未检测到扩展"}</strong>
-        <span class="preflight-badge ${connected ? "ok" : "warn"}">${connected ? "正常" : "待安装"}</span>
+        <span class="preflight-badge ${connected ? "ok" : "warn"}">${connected ? "正常" : "待安装/离线"}</span>
       </div>
+      ${version ? `<p class="muted">扩展版本 ${escapeHtml(version)}</p>` : ""}
       <p class="muted mt-1">已采集事件 <strong>${total}</strong> 条${types ? `（${escapeHtml(types)}）` : ""}</p>
-      ${data.last_seen ? `<p class="muted">最近心跳 ${escapeHtml(String(data.last_seen).slice(0, 19))}</p>` : "<p class='muted'>安装扩展后打开任意网页，再点「刷新状态」</p>"}
+      ${data.last_seen ? `<p class="muted">最近心跳 ${escapeHtml(String(data.last_seen).slice(0, 19).replace("T", " "))}</p>` : "<p class='muted'>安装扩展后打开任意网页，再点「刷新状态」</p>"}
+      ${queueLine}
       ${connected ? "" : '<p class="muted"><a href="#extension">查看安装步骤</a></p>'}`;
   } catch (err) {
     el.className = "extension-status-card";

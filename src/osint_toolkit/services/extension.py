@@ -149,6 +149,16 @@ async def ingest_extension_batch(payloads: list[dict[str, Any]]) -> dict[str, An
     }
 
 
+def _connected_from_last_seen(last_seen: str | None) -> bool:
+    if not last_seen:
+        return False
+    try:
+        dt = datetime.fromisoformat(str(last_seen).replace("Z", "+00:00"))
+        return (datetime.now(UTC) - dt.astimezone(UTC)).total_seconds() < 600
+    except ValueError:
+        return bool(last_seen)
+
+
 def get_extension_status() -> dict[str, Any]:
     path = _status_path()
     base: dict[str, Any] = {
@@ -156,12 +166,14 @@ def get_extension_status() -> dict[str, Any]:
         "last_seen": None,
         "api_base": "http://127.0.0.1:8787",
         "event_totals": {},
+        "pending_queue": 0,
+        "last_flush_error": "",
     }
     if path.exists():
         try:
             stored = json.loads(path.read_text(encoding="utf-8"))
             base.update(stored)
-            base["connected"] = bool(stored.get("last_seen"))
+            base["connected"] = _connected_from_last_seen(stored.get("last_seen"))
         except json.JSONDecodeError:
             pass
 
@@ -203,12 +215,22 @@ def _write_status(patch: dict[str, Any]) -> None:
     path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def ping_extension(version: str = "", enabled: bool = True) -> dict[str, Any]:
-    _write_status(
-        {
-            "last_seen": datetime.now(UTC).isoformat(),
-            "extension_version": version,
-            "enabled": enabled,
-        }
-    )
+def ping_extension(
+    version: str = "",
+    enabled: bool = True,
+    *,
+    pending_queue: int = 0,
+    last_flush_error: str = "",
+) -> dict[str, Any]:
+    patch: dict[str, Any] = {
+        "last_seen": datetime.now(UTC).isoformat(),
+        "extension_version": version,
+        "enabled": enabled,
+        "pending_queue": max(0, int(pending_queue)),
+    }
+    if last_flush_error:
+        patch["last_flush_error"] = str(last_flush_error)[:500]
+    elif pending_queue == 0:
+        patch["last_flush_error"] = ""
+    _write_status(patch)
     return {"ok": True, "server_time": datetime.now(UTC).isoformat()}

@@ -592,7 +592,12 @@ async def api_extension_events(body: ExtensionEventsRequest) -> dict[str, Any]:
 
 @router.post("/extension/ping")
 async def api_extension_ping(body: ExtensionPingRequest) -> dict[str, Any]:
-    return extension.ping_extension(version=body.version, enabled=body.enabled)
+    return extension.ping_extension(
+        version=body.version,
+        enabled=body.enabled,
+        pending_queue=body.pending_queue,
+        last_flush_error=body.last_flush_error,
+    )
 
 
 @router.get("/extension/status")
