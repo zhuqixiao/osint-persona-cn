@@ -178,3 +178,12 @@ ingest:
 6. **诊断**：`osint doctor` 检查 Cookie / Playwright / 扩展连接
 
 分步同步（仅故障排查）：`osint sync --mode accounts` / `--mode browser`
+
+## 相关文档
+
+| 文档 | 读者 |
+|------|------|
+| [GETTING_STARTED.md](GETTING_STARTED.md) | 首次安装与第一次搜罗 |
+| [CAPABILITIES.md](CAPABILITIES.md) | 功能矩阵与已知限制 |
+| [AGENTS.md](../AGENTS.md) | AI / 维护者（改代码入口） |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献与 PR |
