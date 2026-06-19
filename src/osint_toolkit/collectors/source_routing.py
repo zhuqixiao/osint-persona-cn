@@ -38,6 +38,8 @@ _DOMAIN_ROUTES: list[dict[str, Any]] = [
             "编程", "开源", "github", "docker", "kubernetes", "k8s", "python", "rust", "golang",
             "前端", "后端", "api", "框架", "数据库", "linux", "服务器", "devops", "mcp", "llm",
             "大模型", "开源模型", "glm", "智谱", "transformer", "推理", "微调", "agent",
+            "世界模型", "world model", "world models", "视频生成", "视频模型", "多模态",
+            "具身", "具身智能", "sora", "genie", "jepa", "simulator", "embodied",
             "v2ex", "程序员", "代码", "算法", "掘金",
             "composer", "cursor", "codex", "copilot", "claude", "gemini", "gpt", "deepseek",
             "opencode", "open code", "aider", "cline", "windsurf",

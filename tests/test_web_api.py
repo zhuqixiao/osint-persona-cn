@@ -155,8 +155,17 @@ def test_aicu_status(client, monkeypatch):
     assert r.json()["enabled"] is True
 
 
+def test_ingest_recognition_api(client):
+    r = client.get("/api/ingest/recognition")
+    assert r.status_code == 200
+    body = r.json()
+    assert "count" in body
+    assert "recent" in body
+    assert "inventory" in body
+
+
 def test_run_detail_rejects_invalid_run_id(client):
-    r = client.get("/api/runs/not-a-valid-run-id")
+    r = client.get("/api/runs/bad%run")
     assert r.status_code == 400
 
 

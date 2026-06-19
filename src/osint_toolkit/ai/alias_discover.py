@@ -19,6 +19,7 @@ from osint_toolkit.ai.alias_filter import (
     product_variants,
 )
 from osint_toolkit.ai.entity_store import classify_slurs, merge_discovered_aliases
+from osint_toolkit.collectors.github import GithubCollector
 from osint_toolkit.collectors.bilibili import BilibiliCollector
 from osint_toolkit.collectors.v2ex import V2exCollector
 from osint_toolkit.collectors.web import WebCollector
@@ -34,6 +35,7 @@ _PROBE_COLLECTORS = {
     "web": WebCollector,
     "v2ex": V2exCollector,
     "weixin": WeixinCollector,
+    "github": GithubCollector,
 }
 
 _QUOTE_PATTERNS = [
@@ -191,7 +193,7 @@ def ai_extract_aliases(
         return [], []
 
     evidence = []
-    for i, item in enumerate(items[:20], 1):
+    for i, item in enumerate(items[:25], 1):
         evidence.append(
             {
                 "i": i,

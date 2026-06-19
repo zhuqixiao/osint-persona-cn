@@ -20,6 +20,7 @@ _DEFAULT_SEC: dict[str, float] = {
     "step:ai_source_plan": 4.0,
     "step:collect_all": 0.0,  # 由采集子任务累加
     "step:dedup": 2.5,
+    "step:relevance_refine": 5.0,
     "step:mine_comments": 18.0,
     "step:ai_summarize": 28.0,
     "step:persona_simulate": 22.0,
@@ -182,7 +183,7 @@ def planned_search_phases(
     phases: list[str] = []
     if discover_aliases:
         phases.append("alias_discover")
-    phases.extend(["ai_query_analyze", "ai_source_plan", "collect_all", "dedup"])
+    phases.extend(["ai_query_analyze", "ai_source_plan", "collect_all", "dedup", "relevance_refine"])
     if comment_mine_top > 0:
         phases.append("mine_comments")
     phases.append("ai_summarize")

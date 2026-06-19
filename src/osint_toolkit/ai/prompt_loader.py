@@ -34,6 +34,13 @@ BUILTIN_PROMPTS = {
         "不得凭训练记忆编造未在证据中出现的词。"
         "优先近期、高频、在多条证据重复出现的叫法。"
     ),
+    "foreign_expand": (
+        "为 GitHub、Reddit、Hacker News 等国际信源生成英文检索词。"
+        "输出 JSON：en_queries（英文检索词数组）、romanization（罗马字/日文等，可选）、confidence（0-1）。"
+        "若用户查询为中文实体/作品名，给出常用英文官方译名或罗马字；"
+        "若查询已是英文产品名，给出常见变体（大小写、连字符）。"
+        "禁止编造无依据的译名；不确定时降低 confidence 并少输出。"
+    ),
     "query_analyze": (
         "请分析用户查询意图，输出扩展检索策略。"
         "必须包含：圈内昵称、简称、罗马字/英文译名、梗称；若用户研究 ACG/角色，"
@@ -52,13 +59,21 @@ BUILTIN_PROMPTS = {
         "你是情报搜罗助手，需用链式思考分析用户查询，并规划信源。"
         "先逐步推理，再给出结构化 JSON（不要输出 JSON 以外的正文）。"
         "JSON 字段："
-        "reasoning_chain(数组，每项含 id/title/content，至少 4 步：理解查询、提取关键词、判断信息域、信源策略)；"
+        "reasoning_chain(数组，每项含 id/title/content，至少 5 步：理解查询、提取关键词、判断信息域、"
+        "区分综合性平台与垂直站、信源策略)；"
         "topic_keywords(数组，3-8 个检索关键词/圈内词)；"
         "topic_summary(一句话话题摘要)；"
+        "query_substance(字符串 substantive|cryptic|nonsense，查询是否有实质检索价值；"
+        "随机字符/纯灌水/无法推断意图→nonsense)；"
         "is_cryptic(布尔，查询是否隐晦/需圈内知识才能理解)；"
+        "auto_enable(数组，建议系统自动启用且用户未勾选、且确有价值的信源 id，最多 6 个；"
+        "优先垂直站、SERP、GitHub、B站等；勿列入音乐流媒体除非明确歌曲话题；"
+        "用户已勾选的 id 不要重复列入)；"
         "source_scores(对象，key 为信源 id，value 含 score 0-100、tier strong|medium|weak|skip、reason 一句话)。"
         "只评价与话题可能相关的信源；强相关 score≥70，中等 40-69，弱 15-39，应跳过 <15。"
-        "隐晦查询时宁可多推荐垂直社区信源，并说明理由。"
+        "规则分偏低但话题有实质内容时，应依据平台内容形态（讨论/教程/开源/资讯）给 bilibili、github、"
+        "垂直社区、web 等合理高分，并在 auto_enable 中明确建议。"
+        "nonsense 查询时 source_scores 全低、auto_enable 为空。"
     ),
 }
 

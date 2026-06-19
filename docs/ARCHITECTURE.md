@@ -57,10 +57,13 @@
 1. **实体词表** `~/.osint/entities/*.yaml`（支持精确/包含匹配，如搜「祥子」可命中「丰川祥子」词条）
 2. **规则兜底**（仅当联网+词表仍不足时：中文名简称、`小X`；`rule_nickname_suffixes` 可开机械后缀）
 3. **AI query_analyze**（意图与信源策略；扩展词优先级低于联网发现）
+4. **外文拓展**（`ai/foreign_expand.py`）：当勾选 GitHub/Reddit/HN 等 `accept_foreign_queries` 信源时，单独生成英文检索词；国内信源（知乎/B站等）不合并拉丁拓展词。配置 `search.foreign_expand.*`、`http.proxy`（国际探针）。
 
-配置：`search.discover_aliases`、`discover_probe_limit`、`discover_sources`（含 v2ex）、`persist_discovered_aliases`
+配置：`search.discover_aliases`、`discover_probe_limit`、`discover_sources`（含 v2ex）、`persist_discovered_aliases`、`foreign_expand`
 
-`services/search.py` 对 `queries_used` 中每个词并行采集，合并去重后写入 `item.personal.matched_queries`。
+`services/search.py` 按 `queries_by_source` 为各信源分配查询词，公平调度采集任务；合并去重后写入 `item.personal.matched_queries`。
+
+**行为认可**（ingest 页）：展示 `events` 表中点赞/赞同/投币/评论与收藏库快照；与画像构建同源，非搜罗「有用/噪音」反馈。
 
 预览 API：`POST /api/search/expand`
 

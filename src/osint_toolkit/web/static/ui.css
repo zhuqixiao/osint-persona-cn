@@ -232,7 +232,9 @@ body {
 }
 
 .ui-segmented button.active,
-.ui-segmented .ui-segmented-item.active {
+.ui-segmented .ui-segmented-item.active,
+.ui-segmented button.is-active,
+.ui-segmented .ui-segmented-item.is-active {
   background: var(--surface);
   color: var(--text);
   box-shadow: inset 0 0 0 1px var(--border), var(--shadow-sm);
@@ -337,10 +339,83 @@ body {
   padding: 0.3rem 0.65rem;
 }
 
+.reading-toolbar .btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.reading-size-label {
+  font-size: 0.75rem;
+  min-width: 2.2rem;
+  text-align: center;
+  user-select: none;
+}
+
+.reading-split-status {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.reading-split-status.hidden {
+  display: none;
+}
+
+#report-panel.markdown-body.reading-surface,
+#report-panel.reading-surface .markdown-body-inner {
+  font-size: var(--font-size-reading);
+  line-height: var(--line-height-reading);
+}
+
+#report-panel[data-reading-size="sm"],
+#report-panel[data-reading-size="sm"] .markdown-body-inner {
+  --font-size-reading: 0.94rem;
+}
+
+#report-panel[data-reading-size="lg"],
+#report-panel[data-reading-size="lg"] .markdown-body-inner {
+  --font-size-reading: 1.12rem;
+}
+
+#report-panel[data-reading-size="xl"],
+#report-panel[data-reading-size="xl"] .markdown-body-inner {
+  --font-size-reading: 1.22rem;
+}
+
 .report-layout-with-toc {
   display: flex;
   gap: 1.25rem;
   align-items: flex-start;
+}
+
+.report-layout-body {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+}
+
+.report-aside-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.report-aside-stack .report-toc {
+  position: static;
+  flex: 0 1 auto;
+  max-height: 14rem;
+  width: 100%;
+  font-size: 0.78rem;
+}
+
+.report-toc-inline {
+  display: none;
+  margin-bottom: 0.65rem;
 }
 
 .report-toc {
@@ -468,6 +543,18 @@ body.focus-reading #report-panel {
   padding: 0.5rem 0;
   margin-bottom: 0.5rem;
   border-bottom: 1px solid var(--border);
+}
+
+.results-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.source-filter-chips {
+  flex-wrap: wrap;
+  max-width: 100%;
 }
 
 /* —— Item cards (list style) —— */

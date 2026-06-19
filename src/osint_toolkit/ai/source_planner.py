@@ -18,7 +18,9 @@ _EMPTY_PLAN: dict[str, Any] = {
     "reasoning_chain": [],
     "topic_keywords": [],
     "topic_summary": "",
+    "query_substance": "",
     "is_cryptic": False,
+    "auto_enable": [],
     "source_scores": {},
     "ai_invoked": False,
 }
@@ -88,11 +90,22 @@ def _normalize_plan(raw: dict[str, Any]) -> dict[str, Any]:
                     "reason": str(val.get("reason") or "").strip(),
                 }
 
+    auto_enable_in = raw.get("auto_enable") or []
+    if isinstance(auto_enable_in, str):
+        auto_enable_in = [auto_enable_in]
+    auto_enable = [str(s).strip() for s in auto_enable_in if str(s).strip() in COLLECTORS]
+
+    substance = str(raw.get("query_substance") or "").strip().lower()
+    if substance not in ("substantive", "cryptic", "nonsense"):
+        substance = ""
+
     return {
         "reasoning_chain": norm_chain,
         "topic_keywords": keywords,
         "topic_summary": str(raw.get("topic_summary") or "").strip(),
+        "query_substance": substance,
         "is_cryptic": bool(raw.get("is_cryptic")),
+        "auto_enable": auto_enable,
         "source_scores": norm_scores,
         "ai_invoked": True,
     }
@@ -189,3 +202,19 @@ def extract_ai_score_map(plan: dict[str, Any] | None) -> dict[str, float]:
         if isinstance(meta, dict):
             out[str(sid)] = float(meta.get("score") or 0)
     return out
+
+
+def extract_ai_auto_enable(plan: dict[str, Any] | None) -> list[str]:
+    """AI 明确建议自动启用的信源 id（已校验在目录内）。"""
+    raw = (plan or {}).get("auto_enable") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    return [str(s).strip() for s in raw if str(s).strip() in COLLECTORS]
+
+
+def query_substance(plan: dict[str, Any] | None) -> str:
+    return str((plan or {}).get("query_substance") or "").strip().lower()
+
+
+def is_nonsense_plan(plan: dict[str, Any] | None) -> bool:
+    return query_substance(plan) == "nonsense"

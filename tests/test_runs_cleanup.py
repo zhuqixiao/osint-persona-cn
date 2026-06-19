@@ -80,7 +80,27 @@ def test_api_runs_cleanup_dry_run(tmp_path, monkeypatch):
     _patch_data_dir(monkeypatch, tmp_path)
     _write_run(tmp_path, "20260101-120000-old00001")
     client = TestClient(create_app())
-    r = client.post("/api/runs/cleanup", json={"older_than_days": 1, "keep_latest": 0, "dry_run": True})
+    r = client.post("/api/runs/cleanup", json={"older_than_days":  1, "keep_latest": 0, "dry_run": True})
     assert r.status_code == 200
     assert r.json()["count"] >= 1
     assert (tmp_path / "runs" / "20260101-120000-old00001").exists()
+
+
+def test_api_runs_batch_delete(tmp_path, monkeypatch):
+    _patch_data_dir(monkeypatch, tmp_path)
+    ids = ["20260101-120000-batch0001", "20260101-120000-batch0002", "20260101-120000-batch0003"]
+    for run_id in ids:
+        _write_run(tmp_path, run_id)
+    client = TestClient(create_app())
+    r = client.post(
+        "/api/runs/batch-delete",
+        json={"run_ids": [ids[0], ids[1], "missing-run-id"]},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["count"] == 2
+    assert set(body["deleted"]) == {ids[0], ids[1]}
+    assert any(s.get("run_id") == "missing-run-id" for s in body["skipped"])
+    assert not (tmp_path / "runs" / ids[0]).exists()
+    assert not (tmp_path / "runs" / ids[1]).exists()
+    assert (tmp_path / "runs" / ids[2]).exists()

@@ -45,6 +45,8 @@ def test_workspace_core_options_grouped():
     assert 'id="research-suggested-queries"' in html
     assert "workspace-split-view" in html
     assert "report-reading-toolbar" in html
+    assert "reading-size-label" in html
+    assert "reading-split-status" in html
     assert "reading-surface" in html
     assert "ui-segmented" in html
     js = (STATIC / "app.js").read_text(encoding="utf-8")

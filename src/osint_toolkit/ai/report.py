@@ -22,7 +22,7 @@ def _source_label(name: str) -> str:
         "zhihu": "知乎",
         "bilibili": "B站",
         "web": "网页",
-        "weixin": "微信",
+        "weixin": "搜狗微信公众平台",
         "v2ex": "V2EX",
         "rss": "RSS",
         "ithome": "IT之家",

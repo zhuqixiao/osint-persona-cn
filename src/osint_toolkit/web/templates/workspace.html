@@ -59,7 +59,13 @@
   <div id="suggested-queries" class="chip-group mt-1"></div>
   <details id="expanded-queries-wrap" class="mt-1 hidden">
     <summary>关联词 <span id="expanded-queries-count" class="muted"></span></summary>
+    <p class="muted mt-1" style="font-size:0.85rem">中文关联词（国内信源）</p>
     <div id="expanded-queries" class="chip-group mt-1"></div>
+    <div id="foreign-queries-wrap" class="hidden mt-1">
+      <p class="muted" style="font-size:0.85rem">外文拓展（GitHub / Reddit / HN 等国际信源）</p>
+      <div id="foreign-queries" class="chip-group mt-1"></div>
+      <p id="foreign-expand-hint" class="muted" style="font-size:0.8rem"></p>
+    </div>
   </details>
 
   <div class="toolbar-group source-catalog-panel">
@@ -177,6 +183,7 @@
       <label><input type="checkbox" name="no-ai-step" value="alias_discover"> 关联词发现</label>
       <label><input type="checkbox" name="no-ai-step" value="query_analyze"> 查询分析</label>
       <label><input type="checkbox" name="no-ai-step" value="source_plan"> 信源规划</label>
+      <label><input type="checkbox" name="no-ai-step" value="relevance_refine"> 相关度辅助</label>
       <label><input type="checkbox" name="no-ai-step" value="ai_summarize"> 摘要</label>
       <label><input type="checkbox" name="no-ai-step" value="persona_simulate"> 画像模拟</label>
       <label><input type="checkbox" name="no-ai-step" value="comment_mine"> 评论挖掘</label>
@@ -222,6 +229,7 @@
   </div>
   <label class="workspace-split-toggle" id="workspace-split-wrap" title="宽屏（≥1280px）左右分屏对照结果与报告；分屏时追问栏请切换到「情报报告」Tab 全宽查看">
     <input type="checkbox" id="workspace-split-view"> 结果/报告分屏
+    <span class="muted workspace-split-hint">分屏时报告在右侧，追问请点「情报报告」Tab</span>
   </label>
 </div>
 <details class="workspace-interaction-tips" id="workspace-interaction-tips">
@@ -259,13 +267,15 @@
         <h2>情报报告</h2>
         <div class="reading-toolbar" id="report-reading-toolbar">
           <button type="button" class="btn btn-sm btn-ghost" id="reading-size-down" title="减小字号">A−</button>
+          <span id="reading-size-label" class="reading-size-label muted" aria-live="polite">标准</span>
           <button type="button" class="btn btn-sm btn-ghost" id="reading-size-up" title="增大字号">A+</button>
-          <button type="button" class="btn btn-sm btn-ghost" id="reading-split-btn" title="对照结果分屏">对照结果</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="reading-split-btn" title="对照结果分屏" aria-pressed="false">对照结果</button>
+          <span id="reading-split-status" class="reading-split-status hidden" aria-live="polite"></span>
           <button type="button" class="btn btn-sm btn-ghost" id="reading-focus-btn" title="沉浸阅读">Focus</button>
           <button type="button" class="btn btn-sm btn-ghost" id="reading-copy-md" title="复制 Markdown">复制</button>
         </div>
-        <div class="report-layout-with-toc">
-          <aside id="report-toc" class="report-toc hidden" aria-label="报告目录"></aside>
+        <div class="report-layout-body">
+          <aside id="report-toc-inline" class="report-toc report-toc-inline hidden" aria-label="报告目录（分屏）"></aside>
           <div class="report-main-inner">
             <div id="report-panel" class="card card-flat markdown-body reading-surface">
               <p class="muted">勾选「本轮情报报告」后，AI 归纳内容会显示在此（非导航「简报」页的每日摘要）；也可在结果卡片上反馈有用/噪音。</p>
@@ -274,6 +284,7 @@
           </div>
         </div>
       </div>
+      <div class="report-aside-stack">
       <aside id="ask-section" class="ask-sidebar card hidden" aria-label="追问报告">
         <h2>追问报告</h2>
         <div id="ask-history" class="ask-history"></div>
@@ -285,6 +296,8 @@
         </form>
         <div id="ask-interaction-hint" class="interaction-hint-bar hidden" role="note"></div>
       </aside>
+      <aside id="report-toc" class="report-toc hidden" aria-label="报告目录"></aside>
+      </div>
     </div>
   </section>
   <section class="research-panel-wrap" id="workspace-panel-research" role="tabpanel" aria-hidden="true">

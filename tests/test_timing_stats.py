@@ -77,4 +77,4 @@ def test_planned_search_phases_respects_flags():
     assert "mine_comments" not in phases
     assert "persona_simulate" not in phases
     assert "ai_report" not in phases
-    assert phases == ["ai_query_analyze", "ai_source_plan", "collect_all", "dedup", "ai_summarize"]
+    assert phases == ["ai_query_analyze", "ai_source_plan", "collect_all", "dedup", "relevance_refine", "ai_summarize"]

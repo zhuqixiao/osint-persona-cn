@@ -27,7 +27,13 @@ from osint_toolkit.ai.report import generate_report
 from osint_toolkit.ai.summarize import summarize_batch
 
 from osint_toolkit.analyzers.comments import summarize_comments
+from osint_toolkit.analyzers.zhihu_fetch_gate import (
+    heuristic_zhihu_deep_plan,
+    merge_comment_lists,
+    plan_zhihu_deep_fetch,
+)
 
+from osint_toolkit.analyzers.ai_relevance import refine_relevance_with_ai
 from osint_toolkit.analyzers.citations import assign_citation_ids
 from osint_toolkit.analyzers.dedup import dedup_items
 
@@ -151,8 +157,7 @@ async def _collect_source(name: str, query: str, limit: int) -> tuple[list[Intel
         warns = collector.consume_warnings()
         if warns:
             if items:
-                for item in items:
-                    item.personal.setdefault("collector_warnings", []).extend(warns)
+                items[0].personal.setdefault("collector_warnings", []).extend(warns)
             else:
                 orphan_warnings = list(warns)
     return items, orphan_warnings
@@ -357,6 +362,66 @@ def _effective_comment_top(default_top: int) -> int:
     return max(default_top, int(zh_top))
 
 
+def _apply_openapi_comment_layers(items: list[IntelItem]) -> None:
+    """将 OpenAPI 预取评论写入 layers 作为预览；评论挖掘阶段可能再合并站内深抓结果。"""
+    for item in items:
+        if item.source != "zhihu":
+            continue
+        if item.layers.get("comments"):
+            continue
+        prefetched = item.personal.get("openapi_comments")
+        if prefetched:
+            item.layers["comments"] = prefetched
+
+
+async def _enrich_short_zhihu_openapi(
+    items: list[IntelItem],
+    search_cfg: dict[str, Any],
+    deep_plans: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    top = int(search_cfg.get("zhihu_openapi_deep_fetch_top", 5))
+    if top <= 0:
+        return []
+
+    candidates: list[IntelItem] = []
+    for item in items:
+        if item.source != "zhihu" or not item.url:
+            continue
+        plan = (deep_plans or {}).get(item.id) or item.personal.get("deep_fetch_plan")
+        if not plan:
+            plan = heuristic_zhihu_deep_plan(item, search_cfg)
+        if plan.get("fetch_body"):
+            candidates.append(item)
+    candidates.sort(key=lambda i: i.signals.relevance, reverse=True)
+    candidates = candidates[:top]
+    if not candidates:
+        return []
+
+    collector = ZhihuCollector()
+    sem = _zhihu_global_collect_sem()
+    enriched: list[dict[str, Any]] = []
+
+    for item in candidates:
+        try:
+            async with sem:
+                deeper = await collector.fetch(item.url)
+            old_len = len((item.content or "").strip())
+            new_content = (deeper.content or "").strip() if deeper else ""
+            if new_content and len(new_content) > old_len:
+                item.content = deeper.content
+                if deeper.title:
+                    item.title = deeper.title
+                if deeper.author:
+                    item.author = deeper.author
+                if deeper.metrics:
+                    item.metrics = deeper.metrics
+                item.personal["body_deep_fetched"] = True
+                enriched.append({"item_id": item.id, "url": item.url, "content_len": len(new_content)})
+        except Exception:  # noqa: BLE001
+            pass
+    return enriched
+
+
 async def _mine_comments(
     items: list[IntelItem],
     *,
@@ -364,7 +429,9 @@ async def _mine_comments(
     no_ai: bool,
     disabled_steps: list[str] | None = None,
     comment_mine_sources: list[str] | None = None,
+    search_cfg: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    search_cfg = search_cfg or get_search_config()
     if not is_step_enabled("comment_mine", no_ai=no_ai, disabled_steps=disabled_steps):
         return []
 
@@ -419,14 +486,24 @@ async def _mine_comments(
                     await collector.enrich_video(item)
                 except Exception:  # noqa: BLE001
                     pass
-            if src == "zhihu" and item.type not in {"answer", "article"}:
+            if src == "zhihu" and item.type not in {"answer", "article", "question"}:
                 continue
             if src == "bilibili" and item.type not in {"video", "article"}:
                 continue
 
-            prefetched = item.personal.get("openapi_comments")
-            if prefetched:
-                comments = prefetched
+            if src == "zhihu":
+                prefetched = list(item.personal.get("openapi_comments") or [])
+                plan = item.personal.get("deep_fetch_plan") or heuristic_zhihu_deep_plan(item, search_cfg)
+                fetched: list[dict[str, Any]] = []
+                if plan.get("fetch_comments") and item.type in {"answer", "article"}:
+                    try:
+                        fetched = await collector.fetch_comments(item.url)
+                        if fetched:
+                            item.personal["comments_deep_fetched"] = True
+                    except Exception:  # noqa: BLE001
+                        fetched = []
+                comments = merge_comment_lists(prefetched, fetched)
+                item.personal["comment_fetch_plan"] = plan.get("reason") or ""
             else:
                 comments = await collector.fetch_comments(item.url)
 
@@ -613,6 +690,15 @@ async def run_search(
         )
         discover_meta = step_discover.data if isinstance(step_discover.data, dict) else {}
 
+    intl_probe_terms: list[str] = []
+    from osint_toolkit.ai.foreign_expand import foreign_expand_enabled, probe_foreign_aliases
+
+    if foreign_expand_enabled(query, sources):
+        try:
+            intl_probe_terms = await probe_foreign_aliases(query, no_ai=no_ai)
+        except Exception:  # noqa: BLE001
+            intl_probe_terms = []
+
     update_progress(
         run_id,
         "ai_query_analyze",
@@ -638,6 +724,7 @@ async def run_search(
         include_slurs=include_slurs,
         discovered_aliases=discover_meta.get("discovered_aliases") or [],
         discover_meta=discover_meta,
+        intl_probe_terms=intl_probe_terms,
         profile=profile,
         source_overrides=source_overrides,
     )
@@ -671,6 +758,8 @@ async def run_search(
         )
 
     queries_used: list[str] = query_analysis.get("queries_used") or [query]
+    foreign_queries: list[str] = query_analysis.get("foreign_queries") or []
+    queries_by_source: dict[str, list[str]] = dict(query_analysis.get("queries_by_source") or {})
     if search_cfg.get("strict_mode"):
         queries_used = filter_relevant_terms(queries_used, query)
 
@@ -698,6 +787,7 @@ async def run_search(
     task_meta = build_fair_collect_tasks(
         queries_used,
         collect_sources,
+        queries_by_source=queries_by_source or None,
         max_tasks=max_collect_tasks,
     )
     eta_tracker.set_task_meta(task_meta)
@@ -837,7 +927,13 @@ async def run_search(
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
 
-        return {"items": list(shared_items), "source_errors": source_errors, "source_warnings": source_warnings}
+        from osint_toolkit.utils.source_notices import consolidate_source_notices
+
+        return {
+            "items": list(shared_items),
+            "source_errors": consolidate_source_notices(source_errors, text_key="error"),
+            "source_warnings": consolidate_source_notices(source_warnings),
+        }
 
     update_progress(
         run_id,
@@ -918,11 +1014,57 @@ async def run_search(
     intel_stats = {"new_count": new_count, "seen_count": max(0, len(items) - new_count), "total": len(items)}
     update_progress(run_id, "dedup", detail=f"去重后 {len(items)} 条（新增 {new_count}）", items_found=len(items))
 
+    update_progress(
+        run_id,
+        "relevance_refine",
+        detail="AI 辅助相关度精炼…",
+        items_found=len(items),
+        eta_sec=eta_tracker.remaining_sec(current_phase="relevance_refine"),
+    )
+    step_refine = await _record_step(
+        runner,
+        "relevance_refine",
+        refine_relevance_with_ai(
+            items,
+            query,
+            no_ai=no_ai,
+            disabled_steps=disabled_ai_steps,
+            search_cfg=search_cfg,
+        ),
+        input_summary=f"items={len(items)}",
+        artifact_name="relevance_refine.json",
+        ai_invoked=not no_ai
+        and bool(search_cfg.get("ai_relevance_refine", True))
+        and is_step_enabled("relevance_refine", no_ai=no_ai, disabled_steps=disabled_ai_steps),
+        run_id=run_id,
+        progress_detail="AI 辅助相关度…",
+        eta_tracker=eta_tracker,
+        eta_after_phase="dedup",
+    )
+    _ = step_refine
+
     thread_top = int(search_cfg.get("thread_expand_top", 5))
     if thread_top > 0:
         items = await enrich_forum_threads(items, top=thread_top)
 
     items.sort(key=lambda i: i.signals.relevance, reverse=True)
+
+    zhihu_plan_pool = [i for i in items if i.source == "zhihu" and not i.signals.fold_reason]
+    plan_limit = max(24, int(search_cfg.get("zhihu_openapi_deep_fetch_top", 5)) * 3)
+    deep_plans = await plan_zhihu_deep_fetch(
+        zhihu_plan_pool[:plan_limit],
+        query,
+        search_cfg,
+        no_ai=no_ai,
+        disabled_steps=disabled_ai_steps,
+    )
+    for item in zhihu_plan_pool:
+        plan = deep_plans.get(item.id)
+        if plan:
+            item.personal["deep_fetch_plan"] = plan
+
+    _apply_openapi_comment_layers(items)
+    await _enrich_short_zhihu_openapi(items, search_cfg, deep_plans)
 
     items_for_mining = [i for i in items if not i.signals.fold_reason]
     step_comments = await _record_step(
@@ -937,6 +1079,7 @@ async def run_search(
             no_ai=no_ai,
             disabled_steps=disabled_ai_steps,
             comment_mine_sources=comment_mine_sources,
+            search_cfg=search_cfg,
         ),
 
         input_summary=f"top={comment_mine_top}",
@@ -1169,6 +1312,10 @@ async def run_search(
 
         "queries_used": queries_used,
 
+        "foreign_queries": foreign_queries,
+
+        "queries_by_source": queries_by_source,
+
         "no_ai": no_ai,
 
     }
@@ -1191,6 +1338,7 @@ async def preview_query_expansion(
     sources, _unknown = normalize_sources(sources, profile=profile)
     search_cfg = get_search_config()
     discover_meta: dict[str, Any] = {}
+    intl_probe_terms: list[str] = []
     if search_cfg.get("discover_aliases", True):
         discover_meta = await discover_aliases(
             query,
@@ -1198,6 +1346,13 @@ async def preview_query_expansion(
             no_ai=no_ai,
             include_slurs=include_slurs if include_slurs is not None else bool(search_cfg.get("include_slurs", True)),
         )
+    from osint_toolkit.ai.foreign_expand import foreign_expand_enabled, probe_foreign_aliases
+
+    if foreign_expand_enabled(query, sources):
+        try:
+            intl_probe_terms = await probe_foreign_aliases(query, no_ai=no_ai)
+        except Exception:  # noqa: BLE001
+            intl_probe_terms = []
     return expand_query(
         query,
         sources,
@@ -1206,6 +1361,7 @@ async def preview_query_expansion(
         include_slurs=include_slurs,
         discovered_aliases=discover_meta.get("discovered_aliases") or [],
         discover_meta=discover_meta,
+        intl_probe_terms=intl_probe_terms,
         profile=profile,
         source_overrides=source_overrides,
     )

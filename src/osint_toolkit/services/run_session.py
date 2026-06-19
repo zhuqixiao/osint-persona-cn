@@ -8,13 +8,19 @@ from pathlib import Path
 from typing import Any
 
 import osint_toolkit.auth.paths as auth_paths
-from osint_toolkit.utils.safe_path import assert_run_id, resolve_under
+from osint_toolkit.utils.safe_path import assert_run_id, coerce_run_dir_id, resolve_under
 
 RUN_STATUSES = frozenset({"queued", "running", "done", "error", "cancelled", "interrupted"})
 
 
 def run_dir(run_id: str) -> Path:
     safe_id = assert_run_id(run_id)
+    return resolve_under(auth_paths.get_data_dir() / "runs", safe_id)
+
+
+def run_dir_for_read(run_id: str) -> Path:
+    """读取已有 run 目录；兼容历史非标准 run_id（如诊断目录）。"""
+    safe_id = coerce_run_dir_id(run_id)
     return resolve_under(auth_paths.get_data_dir() / "runs", safe_id)
 
 
@@ -83,7 +89,7 @@ def read_manifest(run_id: str) -> dict[str, Any] | None:
 
 
 def read_progress_disk(run_id: str) -> dict[str, Any] | None:
-    path = run_dir(run_id) / "progress.json"
+    path = run_dir_for_read(run_id) / "progress.json"
     if not path.exists():
         return None
     try:

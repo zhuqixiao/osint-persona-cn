@@ -76,7 +76,7 @@ def get_dependencies_status() -> dict[str, Any]:
         },
         {
             "id": "playwright",
-            "label": "Playwright（知乎/微信搜罗回退 + 浏览器补洞）",
+            "label": "Playwright（知乎/搜狗微信公众平台搜罗回退 + 浏览器补洞）",
             "ok": pw_ok,
             "required": False,
             "required_for": ["zhihu 搜罗回退", "搜狗微信搜罗", "浏览器会话补洞"],
@@ -122,7 +122,7 @@ def get_dependencies_status() -> dict[str, Any]:
     if not deepseek.get("ok"):
         blockers.append("DeepSeek API 未配置：AI 摘要 / digest / 追问不可用")
     if not pw_ok:
-        blockers.append("Playwright 未安装：知乎 API 被风控时无法回退，微信搜罗可能失败")
+        blockers.append("Playwright 未安装：知乎 API 被风控时无法回退，搜狗微信公众平台搜罗可能失败")
     if not bilibili.get("ok") and not zhihu.get("ok") and not zhihu_openapi.get("ok"):
         blockers.append("B站 Cookie、知乎 Cookie 与开放平台 Key 均未就绪")
 

@@ -24,3 +24,18 @@ def test_list_runs_skips_huge_items_json(tmp_path, monkeypatch):
     elapsed = time.perf_counter() - started
     assert rows[0]["item_count"] == 42
     assert elapsed < 2.0
+
+
+def test_list_runs_includes_legacy_run_id_folder(tmp_path, monkeypatch):
+    monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
+    legacy_id = "diag-xiangzi"
+    run_dir = tmp_path / "runs" / legacy_id
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.json").write_text(
+        json.dumps({"run_id": legacy_id, "status": "done", "query": "诊断", "finished_at": "2026-06-19T12:00:00Z"}),
+        encoding="utf-8",
+    )
+    rows = list_runs(limit=5)
+    assert len(rows) == 1
+    assert rows[0]["run_id"] == legacy_id
+    assert rows[0]["query"] == "诊断"

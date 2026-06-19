@@ -28,7 +28,7 @@ cookie_sync:
 profiles:
   default:
     label: 默认
-    summary: 日常话题搜罗：知乎、B站、网页与微信，广度与速度均衡。
+    summary: 日常话题搜罗：知乎、B站、网页与搜狗微信公众平台，广度与速度均衡。
     sources: [zhihu, bilibili, web, weixin]
   full:
     label: 全量
@@ -36,7 +36,7 @@ profiles:
     sources: [zhihu, bilibili, web, v2ex, rss, weixin]
   research:
     label: 深度研究
-    summary: 偏社区与技术站点，不含微信；默认开启画像模拟。
+    summary: 偏社区与技术站点，不含搜狗微信公众平台；默认开启画像模拟。
     sources: [zhihu, bilibili, v2ex, web, rss]
     simulate_persona: true
   zhihu_deep:
@@ -58,7 +58,7 @@ source_packs:
 http:
   timeout: 30
   user_agent: "OSINT-Toolkit/0.1.0"
-  proxy: null
+  proxy: null              # 科学上网代理，如 http://127.0.0.1:7890（扩大 GitHub/Reddit 等国外信源）
 
 # bilibili-api-python 折中集成：搜索/评论/账号深采走 SDK，失败回退自研 WBI + SERP
 bilibili:
@@ -149,6 +149,13 @@ search:
   sse_max_lifetime_sec: 3600       # 搜罗 SSE 最长保活（含 AI 摘要/报告阶段）
   zhihu_global_collect_sem: 2      # 全进程知乎采集并发（多任务共享）
   discover_aliases: true           # 联网发现关联词（关闭可加速）
+  discover_probe_limit: 5
+  discover_sources: [bilibili, zhihu, web, v2ex, weixin]
+  foreign_expand:
+    enabled: auto                  # off | on | auto
+    max_foreign_queries: 3
+    intl_probe_enabled: auto       # 无代理时跳过国际探针
+    discover_sources_intl: [github, web]
   comment_mine_top: 12
   strict_mode: false
   max_expanded_queries: 5
@@ -159,6 +166,11 @@ search:
   collect_timeout_sec: 900
   collect_early_stop_items: 45
   min_summarize_relevance: 0.25
+  ai_relevance_refine: true           # 去重后 AI 辅助精炼边界条目相关度
+  ai_relevance_refine_top: 36
+  ai_relevance_borderline_low: 0.12
+  ai_relevance_borderline_high: 0.58
+  ai_relevance_blend: 0.35            # 最终分 = 规则*(1-blend) + AI*blend
   zhihu_aggressive: true
   zhihu_search_types: [general, content]
   zhihu_search_per_type: 40
@@ -171,7 +183,7 @@ search:
   source_auto_route:
     mode: gentle              # off=仅排序 | gentle=强相关自动启用/弱相关跳过 | aggressive=更少保护
     strong_threshold: 45      # 达到即自动启用（即使用户未勾选）
-    weak_threshold: 12         # 用户已勾选但低于此分则跳过
+    weak_threshold: 12         # 低于此分的垂直/SERP 信源可跳过；知乎/B站/V2EX 等综合性原生信源若用户已勾选则始终参与
     min_active_sources: 3
     max_active_sources: 12
     max_auto_enable: 6        # 单次搜索最多自动新增信源数
@@ -181,8 +193,16 @@ search:
     ai_blend: 0.55              # 常规：综合分 = 规则*(1-blend) + AI*blend
     ai_blend_cryptic: 0.78      # 隐晦查询时提高 AI 权重
     cryptic_rule_max: 35        # 规则最高分低于此视为隐晦
+    cryptic_strong_threshold: 38  # 隐晦查询时自动启用的综合分门槛（低于 strong_threshold）
+    ai_auto_enable_min: 55      # AI auto_enable 列表中项的最低 AI 分
+    ai_strong_tier_min: 65      # AI tier=strong 时参与抬分的最低分
   zhihu_comment_limit: 120
   zhihu_comment_mine_top: 12
+  zhihu_openapi_deep_fetch_top: 5              # 门控判定后最多加深全文的条数
+  zhihu_openapi_deep_fetch_min_relevance: 0.35 # 规则门控：摘要较短且相关度达标时倾向加深
+  zhihu_openapi_deep_fetch_max_snippet_len: 400 # 超过此长度视为摘要已较完整（结合 AI/规则）
+  zhihu_deep_fetch_ai: true                    # 用 AI 判断 OpenAPI 短摘要是否值得加深（正文/评论）
+  zhihu_deep_fetch_skip_relevance: 0.12        # 低于此相关度且无评论信号时可跳过加深以省时
   serp:
     primary: auto          # auto | bing_api | serpapi | searxng | bing_html | duckduckgo_html | baidu_html | sogou_html
     strategy: auto          # auto | fallback | merge_html（无 API Key 时 auto=多 HTML 合并）

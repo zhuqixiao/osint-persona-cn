@@ -221,6 +221,7 @@ search:
 | 情报报告 | `--digest` / Web 勾选「本轮情报报告」 | 基于去重条目 + 评论挖掘；正文含 `[cN]` 可点击溯源 |
 | 画像模拟 | `--no-simulate` 关闭 | 需已有 persona |
 | 别名发现 | `search.discover_aliases` | 联网 + AI，可禁 `--no-ai-step alias_discover` |
+| 外文拓展 | `search.foreign_expand` | 国际信源英文检索词；`http.proxy` 可扩大探针范围 |
 | 研究树归纳/建议 | 研究树按钮 | 需报告或条目标题作上下文 |
 | 追问报告 | 搜罗完成后 | `POST /api/ask` |
 | 每日简报 | 简报页 | 基于近期行为与收录 |

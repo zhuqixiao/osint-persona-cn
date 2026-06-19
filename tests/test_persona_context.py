@@ -22,25 +22,23 @@ def test_extract_topics_from_hints():
 
 def test_persona_stale_detection(tmp_path, monkeypatch):
     monkeypatch.setattr("osint_toolkit.auth.paths.get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        "osint_toolkit.persona.context.load_config",
+        lambda: {"ai": {"auto_persona_rebuild_threshold": 10}},
+    )
     db = tmp_path / "knowledge.db"
     monkeypatch.setattr("osint_toolkit.storage.sqlite.get_db_path", lambda: db)
+    from osint_toolkit.storage import sqlite as sqlite_mod
 
-    from osint_toolkit.storage.sqlite import connect
+    sqlite_mod._reset_pool_if_path_changed(db)
 
-    conn = connect()
-    conn.execute("INSERT INTO events (event_type, data_json) VALUES ('ext_page_visit', '{}')")
-    conn.commit()
-    conn.close()
+    counts = {"n": 5}
+    monkeypatch.setattr("osint_toolkit.persona.context.get_event_count", lambda: counts["n"])
 
     mark_persona_built()
     assert is_persona_stale() is False
 
-    conn = connect()
-    for _ in range(55):
-        conn.execute("INSERT INTO events (event_type, data_json) VALUES ('ext_page_visit', '{}')")
-    conn.commit()
-    conn.close()
-
+    counts["n"] = 17
     assert is_persona_stale() is True
 
 

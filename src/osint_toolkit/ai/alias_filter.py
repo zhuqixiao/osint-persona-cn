@@ -54,7 +54,7 @@ def is_narrow_product_query(query: str) -> bool:
     has_digit = bool(re.search(r"\d", q))
     if has_letter and has_digit:
         return True
-    return bool(re.fullmatch(r"[a-zA-Z]{2,12}", q))
+    return bool(re.fullmatch(r"[a-zA-Z]{2,12}", q)) and len(q) <= 6
 
 
 def product_variants(query: str) -> list[str]:
@@ -173,6 +173,17 @@ def has_relevance_to_query(term: str, query: str) -> bool:
     return False
 
 
+def is_cross_script_pair(term: str, query: str) -> bool:
+    t, q = str(term or "").strip(), str(query or "").strip()
+    if not t or not q:
+        return False
+    latin_t = bool(re.search(r"[A-Za-z]{2,}", t))
+    cjk_q = bool(_CJK_RUN.search(q))
+    cjk_t = bool(_CJK_RUN.search(t))
+    latin_q = bool(re.search(r"[A-Za-z]{2,}", q))
+    return (latin_t and cjk_q) or (cjk_t and latin_q)
+
+
 def is_music_drift_term(term: str, query: str) -> bool:
     """技术/产品查询被 AI 误扩为音乐领域检索词。"""
     q = (query or "").strip()
@@ -186,7 +197,7 @@ def is_music_drift_term(term: str, query: str) -> bool:
     return bool(_TECH_PRODUCT_QUERY.search(q))
 
 
-def filter_relevant_terms(terms: list[str], query: str) -> list[str]:
+def filter_relevant_terms(terms: list[str], query: str, *, allow_cross_script: bool = False) -> list[str]:
     """Keep terms that overlap meaningfully with the original query."""
     q = query.strip()
     if not q:
@@ -199,6 +210,8 @@ def filter_relevant_terms(terms: list[str], query: str) -> list[str]:
         if is_music_drift_term(t, q):
             continue
         if t.lower() == q.lower() or has_relevance_to_query(t, q):
+            out.append(t)
+        elif allow_cross_script and is_cross_script_pair(t, q):
             out.append(t)
     return _dedupe_preserve_order(out)
 

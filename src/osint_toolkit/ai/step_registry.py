@@ -5,8 +5,10 @@ from __future__ import annotations
 # canonical_id -> UI label (optional)
 AI_STEPS: dict[str, str] = {
     "alias_discover": "关联词发现",
+    "foreign_expand": "外文拓展",
     "query_analyze": "查询分析",
     "source_plan": "信源规划",
+    "relevance_refine": "相关度辅助",
     "summarize": "AI 摘要",
     "persona_simulate": "画像模拟",
     "comment_mine": "评论挖掘",

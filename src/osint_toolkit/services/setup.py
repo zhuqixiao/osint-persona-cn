@@ -114,7 +114,7 @@ def get_setup_status() -> dict[str, Any]:
             "label": "安装 Playwright",
             "done": playwright_ok,
             "required": False,
-            "detail": "知乎/微信搜罗回退与浏览器补洞；设置页可一键安装",
+            "detail": "知乎/搜狗微信公众平台搜罗回退与浏览器补洞；设置页可一键安装",
             "href": "/settings#deps",
         },
         {

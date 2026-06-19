@@ -59,7 +59,7 @@ class WeixinCollector(BaseCollector):
 
         if not rows:
             detail = "; ".join(attempts[-4:]) if attempts else "无可用结果"
-            raise RuntimeError(f"微信搜索失败: {detail}")
+            raise RuntimeError(f"搜狗微信公众平台检索失败: {detail}")
 
         items = [self._row_to_item(row) for row in rows[:limit]]
         for item in items:

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from osint_toolkit.collectors.registry import COLLECTORS
-from osint_toolkit.collectors.source_catalog import get_source_labels, merge_source_priority
+from osint_toolkit.collectors.source_catalog import get_source_labels, comprehensive_native_source_ids, merge_source_priority
 from osint_toolkit.collectors.source_routing import (
     _music_source_ids,
     compute_source_scores,
@@ -67,6 +68,84 @@ def detect_cryptic_from_scores(rule_scores: dict[str, float]) -> bool:
     if not rule_scores:
         return True
     return max(rule_scores.values()) < threshold
+
+
+def _effective_strong_threshold(cfg: dict[str, Any], *, is_cryptic: bool) -> float:
+    base = float(cfg.get("strong_threshold", 45))
+    if is_cryptic:
+        return float(cfg.get("cryptic_strong_threshold", min(base, 38)))
+    return base
+
+
+def _substantive_query_heuristic(query: str) -> bool:
+    """无 AI 时判断查询是否有实质检索价值（避免对灌水词自动扩源）。"""
+    q = (query or "").strip()
+    if len(q) < 2:
+        return False
+    if re.fullmatch(r"(.)\1{4,}", q):
+        return False
+    if re.fullmatch(r"[\W\d_]+", q):
+        return False
+    if re.search(r"[\u4e00-\u9fff]", q) or re.search(r"[a-zA-Z]{3,}", q):
+        return True
+    return len(q) >= 4
+
+
+def _boost_scores_from_ai_plan(
+    scores: dict[str, float],
+    ai_plan: dict[str, Any],
+    cfg: dict[str, Any],
+    *,
+    is_cryptic: bool,
+) -> dict[str, float]:
+    """将 AI 明确建议与 strong 档信源抬到可自动启用区间。"""
+    from osint_toolkit.ai.source_planner import extract_ai_auto_enable, extract_ai_score_map, is_nonsense_plan
+
+    if is_nonsense_plan(ai_plan):
+        return scores
+
+    out = dict(scores)
+    ai_map = extract_ai_score_map(ai_plan)
+    strong_th = _effective_strong_threshold(cfg, is_cryptic=is_cryptic)
+    floor = strong_th + 0.5
+    auto_min = float(cfg.get("ai_auto_enable_min", 55))
+    tier_min = float(cfg.get("ai_strong_tier_min", 65))
+
+    for sid in extract_ai_auto_enable(ai_plan):
+        if ai_map.get(sid, 0) >= auto_min:
+            out[sid] = max(out.get(sid, 0), floor)
+
+    for sid, meta in (ai_plan.get("source_scores") or {}).items():
+        if not isinstance(meta, dict):
+            continue
+        if str(meta.get("tier") or "") != "strong":
+            continue
+        if float(meta.get("score") or 0) < tier_min:
+            continue
+        out[str(sid)] = max(out.get(str(sid), 0), floor)
+
+    return out
+
+
+def _auto_enable_sort_key(
+    sid: str,
+    scores: dict[str, float],
+    ai_plan: dict[str, Any] | None,
+) -> tuple[float, float, float, float]:
+    from osint_toolkit.ai.source_planner import extract_ai_auto_enable, extract_ai_score_map
+
+    explicit = set(extract_ai_auto_enable(ai_plan))
+    ai_map = extract_ai_score_map(ai_plan)
+    tier = ""
+    meta = (ai_plan or {}).get("source_scores", {}).get(sid)
+    if isinstance(meta, dict):
+        tier = str(meta.get("tier") or "")
+    return (
+        1.0 if sid in explicit else 0.0,
+        1.0 if tier == "strong" else 0.0,
+        ai_map.get(sid, 0),
+        scores.get(sid, 0),
+    )
 
 
 def _auto_route_cfg() -> dict[str, Any]:
@@ -231,28 +310,62 @@ def resolve_search_sources(
             "boost_site_domains": list(route.get("site_domains") or []) if route else [],
         }
 
-    strong_th = float(cfg.get("strong_threshold", 45))
+    is_cryptic = bool((ai_plan or {}).get("is_cryptic")) or detect_cryptic_from_scores(rule_scores)
+    from osint_toolkit.ai.source_planner import is_nonsense_plan
+
+    user_set = set(user)
     weak_th = float(cfg.get("weak_threshold", 12))
+    protect_core = bool(cfg.get("protect_core", True))
+    if mode == "aggressive":
+        weak_th = max(5.0, weak_th - 4.0)
+        protect_core = False
+
+    if ai_plan and is_nonsense_plan(ai_plan):
+        scores = dict(scores)
+        for sid in list(scores.keys()):
+            if sid not in user_set:
+                scores[sid] = min(float(scores.get(sid, 0)), weak_th - 0.1)
+        if score_breakdown is not None:
+            for sid in scores:
+                if sid in score_breakdown:
+                    score_breakdown[sid]["final"] = round(scores[sid], 1)
+    elif ai_plan and ai_plan.get("ai_invoked"):
+        scores = _boost_scores_from_ai_plan(scores, ai_plan, cfg, is_cryptic=is_cryptic)
+        if score_breakdown is not None:
+            for sid, sc in scores.items():
+                if sid in score_breakdown:
+                    score_breakdown[sid]["final"] = round(sc, 1)
+                elif sc > 0:
+                    score_breakdown[sid] = {
+                        "rule": round(rule_scores.get(sid, 0), 1),
+                        "ai": 0.0,
+                        "final": round(sc, 1),
+                        "reason": "",
+                    }
+
+    strong_th = _effective_strong_threshold(cfg, is_cryptic=is_cryptic)
+    if mode == "aggressive":
+        strong_th = max(weak_th + 1.0, strong_th - 12.0)
     min_active = int(cfg.get("min_active_sources", 3))
     max_active = int(cfg.get("max_active_sources", 12))
     max_auto = int(cfg.get("max_auto_enable", 6))
-    protect_core = bool(cfg.get("protect_core", True))
     core_sources = set(cfg.get("core_sources") or list(_CORE_DEFAULT))
     allowed = _allowed_catalog(user, profile=profile, cfg=cfg)
     music_ids = _music_source_ids()
+    comprehensive_natives = comprehensive_native_source_ids()
 
     def _skip_music_source(sid: str) -> bool:
         # 音乐站仅用户主动勾选时参与采集，不自动拉起
         return sid in music_ids and sid not in user_set
 
-    user_set = set(user)
     active: list[str] = []
     auto_enabled: list[str] = []
     skipped: list[str] = []
 
     strong_candidates = sorted(
         [(s, scores[s]) for s in allowed if scores.get(s, 0) >= strong_th],
-        key=lambda x: -x[1],
+        key=lambda x: _auto_enable_sort_key(x[0], scores, ai_plan),
+        reverse=True,
     )
     auto_count = 0
     for sid, _ in strong_candidates:
@@ -276,6 +389,9 @@ def resolve_search_sources(
             continue
         if sid in active:
             continue
+        if sid in comprehensive_natives:
+            active.append(sid)
+            continue
         sc = scores.get(sid, 0)
         if sc >= weak_th:
             active.append(sid)
@@ -284,17 +400,23 @@ def resolve_search_sources(
         else:
             skipped.append(sid)
 
-    if len(active) < min_active:
-        for sid, sc in sorted(scores.items(), key=lambda x: -x[1]):
-            if sid not in allowed or sid in active or sc < weak_th:
-                continue
-            if _skip_music_source(sid):
-                continue
-            active.append(sid)
-            if sid not in user_set and sid not in auto_enabled:
-                auto_enabled.append(sid)
-            if len(active) >= min_active:
-                break
+    if len(active) < min_active and not (ai_plan and is_nonsense_plan(ai_plan)):
+        fallback_ok = (ai_plan and ai_plan.get("ai_invoked")) or _substantive_query_heuristic(query)
+        if fallback_ok:
+            for sid, sc in sorted(
+                scores.items(),
+                key=lambda x: _auto_enable_sort_key(x[0], scores, ai_plan),
+                reverse=True,
+            ):
+                if sid not in allowed or sid in active or sc < weak_th:
+                    continue
+                if _skip_music_source(sid):
+                    continue
+                active.append(sid)
+                if sid not in user_set and sid not in auto_enabled:
+                    auto_enabled.append(sid)
+                if len(active) >= min_active:
+                    break
 
     if len(active) > max_active:
         protect_user = bool(cfg.get("protect_user_selected", True))
@@ -328,7 +450,7 @@ def resolve_search_sources(
         "score_breakdown": _attach_decisions(active, skipped, score_breakdown),
         "rule_scores": {s: round(rule_scores.get(s, 0), 1) for s in set(active) | set(skipped) if rule_scores.get(s, 0) > 0},
         "source_plan": ai_plan or {},
-        "is_cryptic": bool((ai_plan or {}).get("is_cryptic")),
+        "is_cryptic": is_cryptic,
         "hint": _build_hint(
             route=route,
             mode=mode,

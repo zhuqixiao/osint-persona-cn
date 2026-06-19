@@ -23,6 +23,14 @@ def assert_run_id(run_id: str) -> str:
     return value
 
 
+def coerce_run_dir_id(run_id: str) -> str:
+    """读取 runs/ 下目录时接受标准 run_id 或历史诊断目录名（仍走 safe_id 校验）。"""
+    value = str(run_id or "").strip()
+    if RUN_ID_RE.fullmatch(value):
+        return value
+    return assert_safe_id(value, label="run_id")
+
+
 def assert_safe_id(value: str, *, label: str = "id") -> str:
     text = str(value or "").strip()
     if not SAFE_ID_RE.fullmatch(text):

@@ -36,7 +36,7 @@ _SOURCE_LABELS = {
     "github": "GitHub",
     "web": "网页",
     "extension": "扩展",
-    "weixin": "微信",
+    "weixin": "搜狗微信公众平台",
     "v2ex": "V2EX",
 }
 

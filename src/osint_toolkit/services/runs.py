@@ -10,8 +10,13 @@ from pathlib import Path
 from typing import Any
 
 import osint_toolkit.auth.paths as auth_paths
-from osint_toolkit.services.run_session import read_progress_disk, run_dir as _run_dir
-from osint_toolkit.utils.safe_path import PathSecurityError, assert_run_id, assert_safe_filename, resolve_under
+from osint_toolkit.services.run_session import read_progress_disk, run_dir_for_read
+from osint_toolkit.utils.safe_path import (
+    PathSecurityError,
+    assert_safe_filename,
+    coerce_run_dir_id,
+    resolve_under,
+)
 
 _NUMBERED_STEP = re.compile(r"^\d{2}_.+\.json$")
 _SKIP_JSON = frozenset({"manifest.json", "request.json", "progress.json"})
@@ -20,7 +25,7 @@ _STEP_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 def _safe_run_dir(run_id: str) -> Path:
-    return _run_dir(assert_run_id(run_id))
+    return run_dir_for_read(run_id)
 
 
 def _parse_iso(ts: str | None) -> datetime | None:
@@ -129,7 +134,7 @@ def _source_warnings_count(run_dir: Path, manifest: dict[str, Any]) -> int:
 
 def summarize_run(run_id: str, manifest: dict[str, Any] | None = None) -> dict[str, Any]:
     """运行记录列表/详情用的轻量摘要。"""
-    safe_id = assert_run_id(run_id)
+    safe_id = coerce_run_dir_id(run_id)
     run_path = _safe_run_dir(safe_id)
     if manifest is None:
         manifest_path = run_path / "manifest.json"
@@ -192,7 +197,10 @@ def list_runs(limit: int = 20) -> list[dict]:
         except json.JSONDecodeError:
             continue
         run_id = str(data.get("run_id") or m.parent.name)
-        summary = summarize_run(run_id, data)
+        try:
+            summary = summarize_run(run_id, data)
+        except (PathSecurityError, OSError, TypeError, ValueError):
+            continue
         summary["path"] = str(m.parent.name)
         results.append(summary)
     return results

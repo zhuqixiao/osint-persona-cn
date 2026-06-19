@@ -273,7 +273,7 @@ def ingest_zhihu() -> None:
 @ingest_group.command("likes")
 def ingest_likes() -> None:
     result = ingest.get_likes()
-    console.print(f"认可记录: {result['count']} 条")
+    console.print(f"行为认可: {result['count']} 条")
 
 
 @ingest_group.command("browser-sync")

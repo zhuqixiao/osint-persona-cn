@@ -138,8 +138,17 @@
   </div>
 </details>
 
-<div class="card">
-  <h2>认可记录</h2>
+<div class="card" id="recognition-card">
+  <div class="recognition-card-header">
+    <h2>行为认可</h2>
+    <button id="btn-recognition-refresh" class="btn btn-sm btn-secondary" type="button">刷新</button>
+  </div>
+  <p class="muted recognition-desc">
+    展示你已同步的<strong>赞同、收藏、点赞、投币、评论</strong>等正向行为（与「构建画像」读取同一事件库，不是搜罗结果页的「有用/噪音」反馈）。
+    完成上方「完整同步」后刷新；B站投币与部分评论需浏览器扩展日常采集。
+  </p>
+  <div id="recognition-summary" class="recognition-summary hidden"></div>
+  <div id="recognition-filters" class="recognition-filters hidden" role="toolbar" aria-label="按平台筛选"></div>
   <div id="likes-list" class="muted">加载中…</div>
 </div>
 

@@ -34,7 +34,7 @@ def test_apply_routing_glm_enables_github():
     )
     assert result["domain"] == "dev_tech"
     assert "github" in result["active_sources"]
-    assert "weixin" in result["skipped"]
+    assert "weixin" in result["active_sources"]
 
 
 def test_match_gaming_route():

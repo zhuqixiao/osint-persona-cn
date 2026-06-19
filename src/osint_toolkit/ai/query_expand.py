@@ -19,6 +19,8 @@ from osint_toolkit.ai.query_analyze import analyze_query
 from osint_toolkit.collectors.source_routing import apply_source_routing, compute_source_scores
 from osint_toolkit.collectors.source_resolve import blend_rule_and_ai_scores, detect_cryptic_from_scores
 from osint_toolkit.ai.source_planner import detect_cryptic_query, plan_sources
+from osint_toolkit.ai.foreign_expand import expand_foreign_terms
+from osint_toolkit.collectors.queries_by_source import build_queries_by_source, is_primarily_latin
 from osint_toolkit.auth.paths import get_data_dir
 from osint_toolkit.persona.context import PersonaContext
 from osint_toolkit.utils.config import load_config
@@ -197,6 +199,8 @@ def expand_query(
     include_slurs: bool | None = None,
     discovered_aliases: list[str] | None = None,
     discover_meta: dict[str, Any] | None = None,
+    intl_probe_terms: list[str] | None = None,
+    foreign_expand_force: bool = False,
     profile: str = "default",
     source_overrides: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
@@ -291,14 +295,36 @@ def expand_query(
         source_overrides=source_overrides,
     )
 
+    active_sources = list(
+        routing.get("active_sources") or routing.get("recommended_sources") or sources
+    )
+    foreign_pack = expand_foreign_terms(
+        query,
+        active_sources,
+        chinese_aliases=aliases,
+        intl_probe_terms=intl_probe_terms,
+        no_ai=no_ai,
+        disabled_steps=disabled_steps,
+        force=foreign_expand_force,
+    )
+    foreign_queries: list[str] = list(foreign_pack.get("foreign_queries") or [])
+    if not is_primarily_latin(query) and not narrow:
+        domestic = [q for q in queries_used if q == query or not is_primarily_latin(q)]
+        if domestic:
+            queries_used = domestic
+    queries_by_source = build_queries_by_source(active_sources, queries_used, foreign_queries)
+
     return {
         "intent": analysis.get("intent", query),
         "expanded_queries": queries_used,
         "aliases": aliases,
         "queries_used": queries_used,
+        "foreign_queries": foreign_queries,
+        "foreign_expand": foreign_pack,
+        "queries_by_source": queries_by_source,
         "source_plan": source_plan,
-        "active_sources": routing.get("active_sources") or routing.get("recommended_sources") or sources,
-        "recommended_sources": routing.get("active_sources") or routing.get("recommended_sources") or sources,
+        "active_sources": active_sources,
+        "recommended_sources": active_sources,
         "source_routing": {
             "domain": routing.get("domain") or "",
             "label": routing.get("label") or "",

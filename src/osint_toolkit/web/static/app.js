@@ -109,6 +109,7 @@ function initTheme() {
     const size = localStorage.getItem(READING_SIZE_KEY);
     if (size) document.documentElement.dataset.readingSize = size;
   } catch (_) {}
+  if (typeof syncReadingSizeUi === "function") syncReadingSizeUi();
   const mq = window.matchMedia("(prefers-color-scheme: dark)");
   mq.addEventListener("change", () => {
     if (getThemePreference() === "system") applyTheme("system");
@@ -155,20 +156,113 @@ function setReadingSize(delta) {
     if (next) localStorage.setItem(READING_SIZE_KEY, next);
     else localStorage.removeItem(READING_SIZE_KEY);
   } catch (_) {}
+  syncReadingSizeUi();
+}
+
+const READING_SIZE_LABELS = { sm: "小", "": "标准", lg: "大", xl: "特大" };
+
+function syncReadingSizeUi() {
+  const steps = ["sm", "", "lg", "xl"];
+  const size = document.documentElement.dataset.readingSize || "";
+  let idx = steps.indexOf(size);
+  if (idx < 0) idx = 1;
+  const label = READING_SIZE_LABELS[size] ?? "标准";
+  const labelEl = document.getElementById("reading-size-label");
+  if (labelEl) labelEl.textContent = label;
+  const panel = document.getElementById("report-panel");
+  if (panel) {
+    if (size) panel.dataset.readingSize = size;
+    else delete panel.dataset.readingSize;
+  }
+  const down = document.getElementById("reading-size-down");
+  const up = document.getElementById("reading-size-up");
+  if (down) down.disabled = idx <= 0;
+  if (up) up.disabled = idx >= steps.length - 1;
+}
+
+function isWorkspaceSplitWide() {
+  return window.matchMedia("(min-width: 1281px)").matches;
+}
+
+function isWorkspaceSplitActive() {
+  const cb = document.getElementById("workspace-split-view");
+  return Boolean(isWorkspaceSplitWide() && cb?.checked);
+}
+
+function updateSplitControlState() {
+  const cb = document.getElementById("workspace-split-view");
+  const splitBtn = document.getElementById("reading-split-btn");
+  const wrap = document.getElementById("workspace-split-wrap");
+  const statusEl = document.getElementById("reading-split-status");
+  const layout = document.querySelector(".results-layout");
+  const splitOn = isWorkspaceSplitActive();
+  const splitRequested = Boolean(cb?.checked);
+
+  splitBtn?.classList.toggle("active", splitOn);
+  splitBtn?.setAttribute("aria-pressed", splitOn ? "true" : "false");
+  wrap?.classList.toggle("workspace-split-active", splitOn);
+  layout?.classList.toggle("workspace-split-pending", splitRequested && !splitOn);
+
+  if (statusEl) {
+    if (splitOn) {
+      statusEl.textContent = "对照中";
+      statusEl.classList.remove("hidden");
+    } else if (splitRequested && !isWorkspaceSplitWide()) {
+      statusEl.textContent = "需宽屏";
+      statusEl.classList.remove("hidden");
+    } else {
+      statusEl.textContent = "";
+      statusEl.classList.add("hidden");
+    }
+  }
+
+  document.querySelectorAll('.workspace-panel-tab[data-panel="results"], .workspace-panel-tab[data-panel="report"]').forEach((tab) => {
+    tab.classList.toggle("split-active", splitOn);
+  });
+  updateReportTabSplitHint();
+}
+
+function setWorkspaceSplitEnabled(enabled, { persist = true } = {}) {
+  const cb = document.getElementById("workspace-split-view");
+  if (!cb) return false;
+  if (enabled && !isWorkspaceSplitWide()) {
+    showToast("对照分屏需要较宽窗口（≥1280px），请拉宽浏览器后重试", "info");
+    return false;
+  }
+  cb.checked = Boolean(enabled);
+  if (persist) {
+    try {
+      localStorage.setItem("workspaceSplit", cb.checked ? "1" : "0");
+    } catch (_) {}
+  }
+  applyWorkspaceSplitLayout();
+  return true;
+}
+
+function toggleWorkspaceSplit({ persist = true, focusPanel = null } = {}) {
+  const cb = document.getElementById("workspace-split-view");
+  if (!cb) return;
+  const next = !cb.checked;
+  if (!setWorkspaceSplitEnabled(next, { persist })) return;
+  if (next && focusPanel) switchWorkspacePanel(focusPanel);
 }
 
 function buildReportToc(reportEl) {
-  const toc = document.getElementById("report-toc");
-  if (!toc || !reportEl) return;
+  if (!reportEl) return;
   const inner = reportEl.querySelector(".markdown-body-inner") || reportEl;
   const headings = [...inner.querySelectorAll("h2, h3")];
   const cites = [...inner.querySelectorAll(".citation-ref")];
+  const links = [];
   if (!headings.length && cites.length < 2) {
-    toc.classList.add("hidden");
-    toc.innerHTML = "";
+    ["report-toc", "report-toc-inline"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.classList.add("hidden");
+        el.innerHTML = "";
+      }
+    });
     return;
   }
-  const links = [];
   headings.forEach((h, i) => {
     if (!h.id) h.id = `report-section-${i}`;
     links.push(`<a href="#${h.id}">${escapeHtml(h.textContent.trim().slice(0, 48))}</a>`);
@@ -182,13 +276,18 @@ function buildReportToc(reportEl) {
       links.push(`<a href="#" data-citation-jump="${escapeHtml(c.dataset.citationRef || "")}">${escapeHtml(t)}</a>`);
     });
   }
-  toc.innerHTML = links.length ? `<nav aria-label="报告目录">${links.join("")}</nav>` : "";
-  toc.classList.toggle("hidden", !links.length);
-  toc.querySelectorAll("[data-citation-jump]").forEach((a) => {
-    a.addEventListener("click", (e) => {
-      e.preventDefault();
-      const cid = a.dataset.citationJump;
-      if (cid) scrollToCitationTarget(cid, { reportEl, resultsRoot: document.getElementById("search-results") });
+  const navHtml = links.length ? `<nav aria-label="报告目录">${links.join("")}</nav>` : "";
+  ["report-toc", "report-toc-inline"].forEach((id) => {
+    const toc = document.getElementById(id);
+    if (!toc) return;
+    toc.innerHTML = navHtml;
+    toc.classList.toggle("hidden", !links.length);
+    toc.querySelectorAll("[data-citation-jump]").forEach((a) => {
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        const cid = a.dataset.citationJump;
+        if (cid) scrollToCitationTarget(cid, { reportEl, resultsRoot: document.getElementById("search-results") });
+      });
     });
   });
 }
@@ -196,21 +295,14 @@ function buildReportToc(reportEl) {
 function initReadingToolbar() {
   document.getElementById("reading-size-down")?.addEventListener("click", () => setReadingSize(-1));
   document.getElementById("reading-size-up")?.addEventListener("click", () => setReadingSize(1));
+  syncReadingSizeUi();
   document.getElementById("reading-focus-btn")?.addEventListener("click", () => {
     const on = document.body.classList.toggle("focus-reading");
     const wrap = document.querySelector(".report-panel-wrap");
     if (wrap && on) wrap.setAttribute("aria-hidden", "false");
   });
   document.getElementById("reading-split-btn")?.addEventListener("click", () => {
-    const cb = document.getElementById("workspace-split-view");
-    if (cb) {
-      cb.checked = !cb.checked;
-      try {
-        localStorage.setItem("workspaceSplit", cb.checked ? "1" : "0");
-      } catch (_) {}
-      applyWorkspaceSplitLayout();
-    }
-    switchWorkspacePanel("report");
+    toggleWorkspaceSplit({ persist: true, focusPanel: "report" });
   });
   document.getElementById("reading-copy-md")?.addEventListener("click", async () => {
     const panel = document.getElementById("report-panel");
@@ -432,13 +524,16 @@ function ensureResultsVisibleForCitation() {
   const layout = document.querySelector(".results-layout");
   const splitCb = document.getElementById("workspace-split-view");
   if (!layout) return;
+  document.body.classList.remove("reading-focus");
+  const researchPanel = document.getElementById("workspace-panel-research");
+  if (researchPanel && !researchPanel.classList.contains("hidden")) {
+    switchWorkspacePanel("results");
+  }
   const wide = window.matchMedia("(min-width: 1281px)").matches;
   if (wide && splitCb) {
     if (!splitCb.checked) {
       splitCb.checked = true;
-      try {
-        localStorage.setItem("workspaceSplit", "1");
-      } catch (_) {}
+      /* 点击引用时临时分屏对照，不写入 localStorage，刷新后仍默认不分屏 */
     }
     applyWorkspaceSplitLayout();
     return;
@@ -708,24 +803,48 @@ function bindResultsToolbar(container, runId) {
   collapseBtn?.addEventListener("click", () => setAll(false));
 
   const filterHost = container.querySelector("[data-intel-filter]");
+  const sourceFilterHost = container.querySelector("[data-source-filter]");
   const countEl = container.querySelector(".results-toolbar-count");
+  let activeIntelFilter = "all";
+  let activeSourceFilter = "all";
+
+  const applyResultFilters = () => {
+    cardsHost.querySelectorAll(".item-card").forEach((card) => {
+      const seen = card.dataset.alreadySeen === "1";
+      const src = card.dataset.itemSource || "";
+      const intelOk =
+        activeIntelFilter === "all"
+        || (activeIntelFilter === "new" && !seen)
+        || (activeIntelFilter === "seen" && seen);
+      const sourceOk = activeSourceFilter === "all" || src === activeSourceFilter;
+      card.style.display = intelOk && sourceOk ? "" : "none";
+    });
+    updateVisibleCount();
+  };
+
   const updateVisibleCount = () => {
     if (!countEl) return;
+    const total = cardsHost.querySelectorAll(".item-card").length;
     const visible = [...cardsHost.querySelectorAll(".item-card")].filter((c) => c.style.display !== "none").length;
-    countEl.textContent = `${visible} 条结果 · 默认收起，点击标题展开`;
+    const suffix = visible < total ? `（显示 ${visible}/${total}）` : "";
+    countEl.textContent = `${total} 条结果${suffix} · 默认收起，点击标题展开`;
   };
   filterHost?.querySelectorAll("[data-filter]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const mode = btn.dataset.filter || "all";
+      activeIntelFilter = btn.dataset.filter || "all";
       filterHost.querySelectorAll("[data-filter]").forEach((b) => b.classList.toggle("is-active", b === btn));
-      cardsHost.querySelectorAll(".item-card").forEach((card) => {
-        const seen = card.dataset.alreadySeen === "1";
-        const show = mode === "all" || (mode === "new" && !seen) || (mode === "seen" && seen);
-        card.style.display = show ? "" : "none";
-      });
-      updateVisibleCount();
+      applyResultFilters();
     });
   });
+  sourceFilterHost?.querySelectorAll("[data-source-filter]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      activeSourceFilter = btn.dataset.sourceFilter || "all";
+      sourceFilterHost.querySelectorAll("[data-source-filter]").forEach((b) => b.classList.toggle("is-active", b === btn));
+      applyResultFilters();
+    });
+  });
+  container._applyResultFilters = applyResultFilters;
+  applyResultFilters();
 
   const saveBtn = container.querySelector("[data-save-run-items]");
   saveBtn?.addEventListener("click", async () => {
@@ -742,12 +861,29 @@ function bindResultsToolbar(container, runId) {
   });
 }
 
-function renderResultsToolbar(count, intelStats = {}) {
+function countItemsBySource(items) {
+  const counts = {};
+  for (const item of items || []) {
+    const s = item.source || "other";
+    counts[s] = (counts[s] || 0) + 1;
+  }
+  return counts;
+}
+
+function renderResultsToolbar(count, intelStats = {}, sourceCounts = {}) {
   const newCount = Number(intelStats.new_count) || 0;
   const seenCount = Number(intelStats.seen_count) || 0;
+  const sourceEntries = Object.entries(sourceCounts).sort((a, b) => b[1] - a[1]);
+  const sourceChips = sourceEntries.length > 1
+    ? `<div class="ui-segmented source-filter-chips" data-source-filter title="按信源筛选结果">
+        <button type="button" class="btn btn-sm btn-ghost is-active" data-source-filter="all">全部信源</button>
+        ${sourceEntries.map(([sid, n]) => `<button type="button" class="btn btn-sm btn-ghost source-chip-${escapeHtml(sid)}" data-source-filter="${escapeHtml(sid)}" title="${escapeHtml(sourceLabel(sid))}">${escapeHtml(sourceLabel(sid))}${n ? ` (${n})` : ""}</button>`).join("")}
+      </div>`
+    : "";
   return `<div class="results-toolbar results-toolbar-sticky">
     <span class="muted results-toolbar-count">${count} 条结果 · 默认收起，点击标题展开</span>
     <div class="results-toolbar-actions">
+      ${sourceChips}
       <div class="ui-segmented intel-filter-chips" data-intel-filter title="按是否在本话题历史中见过筛选">
         <button type="button" class="btn btn-sm btn-ghost is-active" data-filter="all" title="显示全部结果">全部</button>
         <button type="button" class="btn btn-sm btn-ghost" data-filter="new" title="仅显示本轮首次见到的条目">本轮新增${newCount ? ` (${newCount})` : ""}</button>
@@ -761,6 +897,7 @@ function renderResultsToolbar(count, intelStats = {}) {
 }
 
 function formatCommentsSection(comments) {
+  if (!comments?.length) return "";
   const rows = comments
     .slice(0, 10)
     .map(
@@ -887,13 +1024,17 @@ const EVENT_TYPE_LABELS = {
   ext_page_dwell: "高停留",
   ext_auto_save: "自动收录",
   bilibili_like: "B站点赞",
+  bilibili_fav: "B站收藏",
   bilibili_favorite: "B站收藏",
   bilibili_watch: "B站观看",
+  bilibili_coin: "B站投币",
   bilibili_comment_post: "B站发评",
   bilibili_comment_like: "B站评论赞",
   zhihu_vote: "知乎赞同",
+  zhihu_fav: "知乎收藏",
   zhihu_favorite: "知乎收藏",
   zhihu_browse: "知乎浏览",
+  github_star: "GitHub Star",
   extension_flush: "扩展上报",
 };
 
@@ -1051,6 +1192,56 @@ function initSidebarPollVisibility() {
   });
 }
 
+function syncSplitPanelAccessibility() {
+  const layout = document.querySelector(".results-layout");
+  if (!layout) return;
+  const activePanel =
+    [...layout.classList].find((c) => c.startsWith("panel-"))?.replace("panel-", "") || "results";
+  const splitOn = layout.classList.contains("workspace-split");
+  const panels = {
+    results: layout.querySelector(".results-panel"),
+    report: layout.querySelector(".report-panel-wrap"),
+    research: layout.querySelector(".research-panel-wrap"),
+  };
+
+  if (splitOn && (activePanel === "results" || activePanel === "report")) {
+    ["results", "report"].forEach((key) => {
+      const el = panels[key];
+      if (!el) return;
+      el.setAttribute("aria-hidden", "false");
+      el.removeAttribute("inert");
+    });
+    const researchEl = panels.research;
+    if (researchEl) {
+      researchEl.setAttribute("aria-hidden", "true");
+      researchEl.setAttribute("inert", "");
+    }
+    return;
+  }
+
+  Object.entries(panels).forEach(([key, el]) => {
+    if (!el) return;
+    const hidden = key !== activePanel;
+    el.setAttribute("aria-hidden", hidden ? "true" : "false");
+    if (hidden) {
+      el.setAttribute("inert", "");
+    } else {
+      el.removeAttribute("inert");
+    }
+  });
+}
+
+function updateReportTabSplitHint() {
+  const reportTab = document.querySelector('.workspace-panel-tab[data-panel="report"]');
+  const cb = document.getElementById("workspace-split-view");
+  if (!reportTab) return;
+  const wide = window.matchMedia("(min-width: 1281px)").matches;
+  const splitOn = wide && cb?.checked;
+  reportTab.title = splitOn
+    ? "分屏已显示报告；点此全宽阅读并打开追问"
+    : "查看 AI 情报报告与追问";
+}
+
 function switchWorkspacePanel(panel) {
   const layout = document.querySelector(".results-layout");
   const tabs = document.querySelector(".workspace-panel-tabs");
@@ -1058,25 +1249,10 @@ function switchWorkspacePanel(panel) {
   const name = panel || "results";
   layout.classList.remove("panel-results", "panel-report", "panel-research");
   layout.classList.add(`panel-${name}`);
-  const panels = {
-    results: layout.querySelector(".results-panel"),
-    report: layout.querySelector(".report-panel-wrap"),
-    research: layout.querySelector(".research-panel-wrap"),
-  };
   tabs.querySelectorAll(".workspace-panel-tab").forEach((btn) => {
     const active = btn.dataset.panel === name;
     btn.classList.toggle("active", active);
     btn.setAttribute("aria-selected", active ? "true" : "false");
-  });
-  Object.entries(panels).forEach(([key, el]) => {
-    if (!el) return;
-    const hidden = key !== name;
-    el.setAttribute("aria-hidden", hidden ? "true" : "false");
-    if (hidden) {
-      el.setAttribute("inert", "");
-    } else {
-      el.removeAttribute("inert");
-    }
   });
   try {
     localStorage.setItem("workspacePanel", name);
@@ -1088,8 +1264,10 @@ function applyWorkspaceSplitLayout() {
   const layout = document.querySelector(".results-layout");
   const cb = document.getElementById("workspace-split-view");
   if (!layout || !cb) return;
-  const wide = window.matchMedia("(min-width: 1281px)").matches;
-  layout.classList.toggle("workspace-split", wide && cb.checked);
+  const splitOn = isWorkspaceSplitActive();
+  layout.classList.toggle("workspace-split", splitOn);
+  syncSplitPanelAccessibility();
+  updateSplitControlState();
   const reportEl = document.getElementById("report-panel");
   if (reportEl?.dataset?.rawMarkdown) {
     updateReportInteractionHint(reportEl, true);
@@ -1101,14 +1279,23 @@ function initWorkspaceSplitToggle() {
   const wrap = document.getElementById("workspace-split-wrap");
   if (!cb) return;
   try {
+    /* 默认不分屏；仅用户曾勾选并保存 workspaceSplit=1 时恢复 */
     cb.checked = localStorage.getItem("workspaceSplit") === "1";
-  } catch (_) {}
+  } catch (_) {
+    cb.checked = false;
+  }
   const mq = window.matchMedia("(min-width: 1281px)");
   function onChange() {
     if (wrap) wrap.style.display = mq.matches ? "" : "none";
     applyWorkspaceSplitLayout();
   }
   cb.addEventListener("change", () => {
+    if (cb.checked && !isWorkspaceSplitWide()) {
+      cb.checked = false;
+      showToast("对照分屏需要较宽窗口（≥1280px）", "info");
+      applyWorkspaceSplitLayout();
+      return;
+    }
     try {
       localStorage.setItem("workspaceSplit", cb.checked ? "1" : "0");
     } catch (_) {}
@@ -1272,10 +1459,12 @@ const COMMAND_LABELS = {
 const STEP_LABELS = {
   starting: "准备",
   alias_discover: "关联词发现",
+  foreign_expand: "外文拓展",
   ai_query_analyze: "查询分析",
   ai_source_plan: "信源规划",
   collect_all: "多源采集",
   dedup: "去重打分",
+  relevance_refine: "相关度辅助",
   mine_comments: "评论挖掘",
   ai_summarize: "AI 摘要",
   persona_simulate: "画像模拟",
@@ -1556,7 +1745,7 @@ const SOURCE_LABELS = {
   zhihu: "知乎",
   bilibili: "B站",
   web: "网页",
-  weixin: "微信",
+  weixin: "搜狗微信公众平台",
   v2ex: "V2EX",
   rss: "RSS",
   ithome: "IT之家",
@@ -1640,6 +1829,7 @@ function mountIncrementalResultsList(container, items, simMap, runId, feedbackMa
         moreBtn.textContent = `加载更多（还剩 ${items.length - visible} 条）`;
       }
     }
+    if (typeof container._applyResultFilters === "function") container._applyResultFilters();
   };
 
   container.querySelector("[data-load-more-results]")?.addEventListener("click", () => {
@@ -3214,7 +3404,8 @@ async function refreshExpandedQueries() {
     const data = await api("POST", "/api/search/expand", expandBody);
     if (gen !== expandSession.generation) return;
     const terms = data.queries_used || data.expanded_queries || [query];
-    if (terms.length <= 1) {
+    const foreignTerms = data.foreign_queries || [];
+    if (terms.length <= 1 && !foreignTerms.length) {
       wrap.classList.add("hidden");
       return;
     }
@@ -3223,9 +3414,10 @@ async function refreshExpandedQueries() {
       const persisted = data.discover_meta?.persist?.saved;
       const added = (data.discover_meta?.persist?.added_aliases || []).length
         + (data.discover_meta?.persist?.added_slurs || []).length;
-      countEl.textContent = persisted && added
-        ? `(${terms.length}，新沉淀 ${added} 个)`
-        : `(${terms.length})`;
+      const parts = [];
+      if (terms.length > 1) parts.push(`中文 ${terms.length}`);
+      if (foreignTerms.length) parts.push(`外文 ${foreignTerms.length}`);
+      countEl.textContent = parts.length ? `(${parts.join("，")}${persisted && added ? `，新沉淀 ${added}` : ""})` : "";
     }
     const network = new Set(data.network_aliases || data.discover_meta?.discovered_aliases || []);
     chips.innerHTML = terms
@@ -3241,6 +3433,37 @@ async function refreshExpandedQueries() {
         if (input) input.value = btn.dataset.expandTerm || "";
       });
     });
+    const foreignWrap = document.getElementById("foreign-queries-wrap");
+    const foreignEl = document.getElementById("foreign-queries");
+    const foreignHint = document.getElementById("foreign-expand-hint");
+    if (foreignWrap && foreignEl) {
+      if (foreignTerms.length) {
+        foreignWrap.classList.remove("hidden");
+        foreignEl.innerHTML = foreignTerms
+          .map(
+            (t) =>
+              `<button type="button" class="chip chip-static chip-btn" data-expand-term="${escapeHtml(t)}" title="外文检索词">${escapeHtml(t)}</button>`
+          )
+          .join("");
+        foreignEl.querySelectorAll("[data-expand-term]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const input = document.getElementById("search-query");
+            if (input) input.value = btn.dataset.expandTerm || "";
+          });
+        });
+      } else {
+        foreignWrap.classList.add("hidden");
+        foreignEl.innerHTML = "";
+      }
+    }
+    if (foreignHint) {
+      const fe = data.foreign_expand || {};
+      foreignHint.textContent = fe.degraded
+        ? "未配置代理：国际信源可能降级，可在设置页配置 http.proxy。"
+        : fe.reason === "intl_degraded_no_proxy"
+          ? "国外信源已降级（无代理）。"
+          : "";
+    }
     updateSourceRoutingHint(data.source_routing);
     renderSourcePlanPanel(data.source_plan, data.source_routing);
   } catch (_) {
@@ -3766,9 +3989,113 @@ async function handleSearchStreamDrop(runId, resultsEl, stepsEl, reportEl, progr
   }
 }
 
+function consolidateSourceNotices(notices, textKey = "warning") {
+  if (!notices?.length) return [];
+  const pick = (w) => String(w[textKey] || w.message || w.error || "").trim();
+  const exact = new Map();
+  const order = [];
+  for (const raw of notices) {
+    if (!raw || typeof raw !== "object") continue;
+    const source = String(raw.source || "?").trim() || "?";
+    const text = pick(raw);
+    if (!text) continue;
+    const key = `${source}\0${text}`;
+    if (!exact.has(key)) {
+      exact.set(key, { ...raw, source, [textKey]: text, _count: 1 });
+      order.push(key);
+    } else {
+      exact.get(key)._count += 1;
+    }
+  }
+
+  const apiFailRe = /^(.+? API 失败):\s*(.+)$/i;
+  const apiRateRe = /^(.+? API 速率限制.*)$/i;
+  const apiBuckets = new Map();
+  const apiOrder = [];
+  const standaloneKeys = new Set();
+
+  for (const key of order) {
+    const entry = exact.get(key);
+    const text = pick(entry);
+    if (apiFailRe.test(text) || apiRateRe.test(text)) {
+      const src = entry.source;
+      if (!apiBuckets.has(src)) {
+        apiBuckets.set(src, []);
+        apiOrder.push(src);
+      }
+      apiBuckets.get(src).push(entry);
+    } else {
+      standaloneKeys.add(key);
+    }
+  }
+
+  const finalize = (entry) => {
+    const out = { ...entry };
+    delete out._count;
+    const count = entry._count || 1;
+    const text = pick(out);
+    if (count > 1 && text && !text.includes("（共 ")) {
+      out[textKey] = `${text}（共 ${count} 次）`;
+    }
+    return out;
+  };
+
+  const truncate = (t, max = 72) => {
+    const s = String(t || "").replace(/\s+/g, " ").trim();
+    return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+  };
+
+  const mergeApiBucket = (bucket) => {
+    const total = bucket.reduce((n, b) => n + (b._count || 1), 0);
+    const first = pick(bucket[0]);
+    const rate = first.match(apiRateRe);
+    if (rate) return finalize({ ...bucket[0], [textKey]: first, _count: total });
+
+    const details = bucket.map((entry) => {
+      const text = pick(entry);
+      const m = text.match(apiFailRe);
+      const detail = truncate(m ? m[2] : text);
+      const count = entry._count || 1;
+      return count > 1 ? `${detail} ×${count}` : detail;
+    });
+    const m0 = first.match(apiFailRe);
+    const apiLabel = m0 ? m0[1].replace(/ API 失败$/i, "").trim() || m0[1] : "API";
+    let summary;
+    if (details.length === 1 && total > 1) {
+      const base = details[0].split(" ×")[0];
+      summary = `${apiLabel} API 失败: ${base}（共 ${total} 次），已尝试回退`;
+    } else if (details.length === 1) {
+      summary = first;
+    } else {
+      let shown = details.slice(0, 2).join("；");
+      if (details.length > 2) shown += ` 等 ${details.length} 类错误`;
+      summary = `${apiLabel} API 多次失败（${total} 次），已尝试回退：${shown}`;
+    }
+    return { ...bucket[0], [textKey]: summary };
+  };
+
+  const out = [];
+  const emittedApi = new Set();
+  for (const key of order) {
+    const entry = exact.get(key);
+    const text = pick(entry);
+    if (apiFailRe.test(text) || apiRateRe.test(text)) {
+      const src = entry.source;
+      if (emittedApi.has(src)) continue;
+      const bucket = apiBuckets.get(src) || [entry];
+      out.push(bucket.length === 1 && (bucket[0]._count || 1) === 1 ? finalize(bucket[0]) : mergeApiBucket(bucket));
+      emittedApi.add(src);
+      continue;
+    }
+    if (standaloneKeys.has(key)) out.push(finalize(entry));
+  }
+  return out;
+}
+
 function formatSourceWarningsHtml(warnings) {
   if (!warnings?.length) return "";
-  return `<div id="source-warning-banner" class="alert alert-info search-source-warnings">${warnings
+  const merged = consolidateSourceNotices(warnings, "warning");
+  return `<div id="source-warning-banner" class="alert alert-info search-source-warnings">${merged
     .map((w) => {
       const text = w.warning || w.message || w.error || "";
       return `${escapeHtml(sourceLabel(w.source || "web"))}: ${escapeHtml(text)}`;
@@ -3778,14 +4105,15 @@ function formatSourceWarningsHtml(warnings) {
 
 function formatSourceErrorsHtml(errors) {
   if (!errors?.length) return "";
-  const needsPlaywright = errors.some((e) => /playwright/i.test(String(e.error || "")));
-  const needsCookie = errors.some((e) => /cookie|401|403|z_c0|SESSDATA/i.test(String(e.error || "")));
+  const merged = consolidateSourceNotices(errors, "error");
+  const needsPlaywright = merged.some((e) => /playwright/i.test(String(e.error || "")));
+  const needsCookie = merged.some((e) => /cookie|401|403|z_c0|SESSDATA/i.test(String(e.error || "")));
   let extra = "";
   if (needsPlaywright) extra += ' <a href="/settings#deps">去设置一键安装 Playwright</a>';
   if (needsCookie) extra += ' <a href="/settings">去设置同步 Cookie</a>';
-  const needsNetwork = errors.some((e) => /connection|连接失败|timeout|超时/i.test(String(e.error || "")));
+  const needsNetwork = merged.some((e) => /connection|连接失败|timeout|超时/i.test(String(e.error || "")));
   if (needsNetwork) extra += " 可在 ~/.osint/config.yaml 配置 http.proxy，或检查本机代理/VPN。";
-  return `<div id="source-error-banner" class="alert alert-warn search-source-errors">部分来源采集失败：${errors
+  return `<div id="source-error-banner" class="alert alert-warn search-source-errors">部分来源采集失败：${merged
     .map((e) => `${escapeHtml(sourceLabel(e.source || "web"))}: ${escapeHtml(e.error)}`)
     .join("；")}。${extra}</div>`;
 }
@@ -3892,7 +4220,7 @@ async function renderSearchResults(result, resultsEl, reportEl, runId) {
   const loadMore = items.length > RESULTS_RENDER_BATCH
     ? `<div class="results-load-more-wrap mt-1"><button type="button" class="btn btn-sm btn-secondary" data-load-more-results>加载更多</button></div>`
     : "";
-  resultsEl.innerHTML = `${warnHtml}${errorHtml}${metaHtml}${renderResultsToolbar(items.length, result.intel_stats)}<div class="item-card-list"></div>${loadMore}`;
+  resultsEl.innerHTML = `${warnHtml}${errorHtml}${metaHtml}${renderResultsToolbar(items.length, result.intel_stats, countItemsBySource(items))}<div class="item-card-list"></div>${loadMore}`;
 
   if (items.length > RESULTS_RENDER_BATCH) {
     bindResultsToolbar(resultsEl, runId);
@@ -4015,6 +4343,11 @@ function renderSearchMetaBanner(result) {
   return `<div class="alert alert-info search-meta-banner">${parts.join("<br>")}</div>`;
 }
 
+function itemCommentCount(item) {
+  const comments = item.layers?.comments?.length ? item.layers.comments : item.personal?.openapi_comments;
+  return Array.isArray(comments) ? comments.length : 0;
+}
+
 function renderItemCard(item, sim, runId, feedbackMap = {}, expandedDefault = false, cardIndex = null) {
   const src = item.source || "web";
   const itemHref = safeHref(item.url);
@@ -4085,6 +4418,8 @@ function renderItemCard(item, sim, runId, feedbackMap = {}, expandedDefault = fa
 
   if (item.layers?.comments?.length) {
     sections.push(formatCommentsSection(item.layers.comments));
+  } else if (item.personal?.openapi_comments?.length) {
+    sections.push(formatCommentsSection(item.personal.openapi_comments));
   }
 
   if (simHtml) {
@@ -4096,13 +4431,18 @@ function renderItemCard(item, sim, runId, feedbackMap = {}, expandedDefault = fa
 
   const metrics = [];
   if (item.metrics?.likes) metrics.push(`👍 ${item.metrics.likes}`);
-  if (item.metrics?.comments) metrics.push(`💬 ${item.metrics.comments}`);
+  const commentRows = itemCommentCount(item);
+  if (commentRows) {
+    metrics.push(`💬 ${commentRows} 条热评`);
+  } else if (item.metrics?.comments) {
+    metrics.push(`💬 ${item.metrics.comments}`);
+  }
   if (item.author) metrics.push(escapeHtml(item.author));
 
   const enterClass = cardIndex != null && cardIndex < 20 ? " card-enter" : "";
   const staggerStyle = cardIndex != null && cardIndex < 20 ? ` style="--card-i: ${cardIndex}"` : "";
 
-  return `<article class="card item-card item-source-${escapeHtml(src)} ${expandedClass}${enterClass}"${staggerStyle} data-item-id="${escapeHtml(item.id)}" data-citation-id="${escapeHtml(item.personal?.citation_id || "")}" data-already-seen="${item.personal?.already_seen ? "1" : "0"}">
+  return `<article class="card item-card item-source-${escapeHtml(src)} ${expandedClass}${enterClass}"${staggerStyle} data-item-id="${escapeHtml(item.id)}" data-item-source="${escapeHtml(src)}" data-citation-id="${escapeHtml(item.personal?.citation_id || "")}" data-already-seen="${item.personal?.already_seen ? "1" : "0"}">
     <div class="item-card-header" role="button" tabindex="0" aria-expanded="${ariaExpanded}">
       <span class="item-card-chevron" aria-hidden="true"></span>
       <div class="item-card-head-content">
@@ -4682,6 +5022,16 @@ function renderPersonaModel(model) {
       .join(" · ");
     parts.push(`<div class="persona-field"><strong>近期信源</strong><p class="muted">${srcLine}</p></div>`);
   }
+  const breakdown = model.event_breakdown;
+  const recent7d = breakdown?.recent_activity_7d;
+  if (recent7d && typeof recent7d === "object" && Object.keys(recent7d).length) {
+    const line = Object.entries(recent7d)
+      .sort((a, b) => Number(b[1]) - Number(a[1]))
+      .slice(0, 8)
+      .map(([k, v]) => `${escapeHtml(formatEventType(k))} ${v}`)
+      .join(" · ");
+    parts.push(`<div class="persona-field"><strong>近 7 日行为信号</strong><p class="muted">${line}</p></div>`);
+  }
   const hints = model.high_interest_hints;
   if (Array.isArray(hints) && hints.length) {
     parts.push(
@@ -5074,6 +5424,7 @@ function initIngest() {
           loadPersonaStaleBanner();
           void loadIngestPreflight();
           loadSetupWizard();
+          void loadLikes();
           invalidateShellCache();
           void pollActiveJobs();
           void refreshMobileStatusBar();
@@ -5152,6 +5503,7 @@ function initIngest() {
       loadIngestHealth();
       loadPersonaStaleBanner();
       void loadIngestPreflight();
+      void loadLikes();
     } catch (err) {
       progressUi?.stop();
       el.className = "alert alert-error mt-1";
@@ -5206,6 +5558,7 @@ function initIngest() {
           }
           el.innerHTML = msg;
           loadIngestHealth();
+          void loadLikes();
           return;
         }
         throw new Error(job.detail || "同步失败");
@@ -5217,7 +5570,11 @@ function initIngest() {
       el.textContent = err.message;
     }
   });
-  document.getElementById("btn-extension-refresh")?.addEventListener("click", loadExtensionStatus);
+  document.getElementById("btn-extension-refresh")?.addEventListener("click", () => {
+    loadExtensionStatus();
+    void loadLikes();
+  });
+  document.getElementById("btn-recognition-refresh")?.addEventListener("click", () => loadLikes());
   loadExtensionStatus();
   loadLikes();
   loadIngestCapabilities();
@@ -5352,7 +5709,7 @@ async function loadIngestCapabilities() {
   const scroll = el.querySelector(".table-scroll") || el;
   try {
     const data = await api("GET", "/api/ingest/capabilities");
-    const platformLabels = { bilibili: "B站", zhihu: "知乎", browser: "浏览器", extension: "扩展", weixin: "微信" };
+    const platformLabels = { bilibili: "B站", zhihu: "知乎", browser: "浏览器", extension: "扩展", weixin: "搜狗微信公众平台" };
     const partialCount = (data.items || []).filter((i) => i.status === "partial").length;
     const rows = (data.items || [])
       .map((i) => {
@@ -5422,6 +5779,7 @@ async function runIngest(type, body, resultId, triggerBtn) {
     }
     el.innerHTML = msg;
     loadIngestHealth();
+    void loadLikes();
     return;
   } catch (err) {
     if (el) {
@@ -5436,29 +5794,139 @@ async function runIngest(type, body, resultId, triggerBtn) {
   }
 }
 
+let _recognitionPlatformFilter = "all";
+
+function formatRecognitionDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) {
+    return `今天 ${d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`;
+  }
+  return d.toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
+}
+
+function renderRecognitionSummary(summary) {
+  const el = document.getElementById("recognition-summary");
+  if (!el) return;
+  const chips = [];
+  const platformLabels = { zhihu: "知乎", bilibili: "B站" };
+  const actionLabels = {
+    vote: "赞同",
+    favorite: "收藏",
+    like: "点赞",
+    coin: "投币",
+    comment: "评论",
+    comment_like: "赞评论",
+  };
+  for (const [platform, actions] of Object.entries(summary || {})) {
+    for (const [action, count] of Object.entries(actions || {})) {
+      if (!count) continue;
+      const pl = platformLabels[platform] || platform;
+      const al = actionLabels[action] || action;
+      chips.push(`<span class="recognition-stat">${escapeHtml(pl)} ${escapeHtml(al)} ${count}</span>`);
+    }
+  }
+  if (!chips.length) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+    return;
+  }
+  el.classList.remove("hidden");
+  el.innerHTML = chips.join("");
+}
+
+function renderRecognitionFilters(summary, active) {
+  const el = document.getElementById("recognition-filters");
+  if (!el) return;
+  const hasZhihu = Object.values(summary?.zhihu || {}).some((n) => n > 0);
+  const hasBili = Object.values(summary?.bilibili || {}).some((n) => n > 0);
+  if (!hasZhihu && !hasBili) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+    return;
+  }
+  const mk = (id, label) =>
+    `<button type="button" class="btn btn-sm btn-secondary recognition-filter-btn${active === id ? " active" : ""}" data-platform="${id}">${escapeHtml(label)}</button>`;
+  el.classList.remove("hidden");
+  el.innerHTML = [mk("all", "全部"), hasZhihu ? mk("zhihu", "知乎") : "", hasBili ? mk("bilibili", "B站") : ""]
+    .filter(Boolean)
+    .join("");
+  el.querySelectorAll(".recognition-filter-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      _recognitionPlatformFilter = btn.getAttribute("data-platform") || "all";
+      void loadLikes();
+    });
+  });
+}
+
+function renderRecognitionItem(r) {
+  const title = escapeHtml((r.title || r.url || "未命名").slice(0, 120));
+  const url = escapeHtml(r.url || "");
+  const platform = escapeHtml(r.platform || "");
+  const platformLabel = escapeHtml(r.platform_label || platform);
+  const actionLabel = escapeHtml(r.action_label || r.action || "");
+  const date = escapeHtml(formatRecognitionDate(r.created_at));
+  const via = r.via
+    ? ` · ${escapeHtml(r.via === "extension" ? "扩展" : r.via === "voteanswers_api" ? "赞同 API" : r.via)}`
+    : "";
+  const collection = r.collection ? `<span class="muted"> · 收藏夹 ${escapeHtml(r.collection)}</span>` : "";
+  return `<li class="recognition-item" data-platform="${platform}">
+    <div class="recognition-item-badges">
+      <span class="recognition-badge recognition-badge--${platform}">${platformLabel}</span>
+      <span class="recognition-badge recognition-badge--action">${actionLabel}</span>
+    </div>
+    <div class="recognition-item-body">
+      <div class="recognition-item-title">${title}</div>
+      <div class="recognition-item-meta">${date}${via}${collection}</div>
+    </div>
+    <div class="recognition-item-link">${url ? `<a href="${url}" target="_blank" rel="noopener">打开</a>` : ""}</div>
+  </li>`;
+}
+
+function renderRecognitionList(rows, title) {
+  if (!rows?.length) return "";
+  const list = rows.map(renderRecognitionItem).join("");
+  return `<h3 class="recognition-group-title">${escapeHtml(title)}</h3><ul class="recognition-list">${list}</ul>`;
+}
+
 async function loadLikes() {
   const el = document.getElementById("likes-list");
   if (!el) return;
   try {
     const data = await api("GET", "/api/ingest/likes");
-    const rows = data.rows || [];
-    if (!rows.length && !(data.count > 0)) {
-      el.innerHTML = "<p class='muted'>暂无认可记录。知乎赞同/收藏同步后会写入此处，并参与画像权重。</p>";
+    const filterRows = (rows) =>
+      (rows || []).filter((r) =>
+        _recognitionPlatformFilter === "all" ? true : r.platform === _recognitionPlatformFilter
+      );
+    const recent = filterRows(data.recent || data.rows);
+    const inventory = filterRows(data.inventory || []);
+    renderRecognitionSummary(data.summary || {});
+    renderRecognitionFilters(data.summary || {}, _recognitionPlatformFilter);
+    if (!(data.count > 0) && !recent.length && !inventory.length) {
+      el.innerHTML = `<p class="muted">${escapeHtml(
+        data.hint || "暂无行为认可。请先完成「完整同步」，并安装扩展以采集投币、评论等行为。"
+      )}</p>`;
       return;
     }
-    const list = rows.slice(0, 20).map((r) => {
-      const title = escapeHtml((r.content || r.url || "").slice(0, 80));
-      const url = escapeHtml(r.url || "");
-      return `<li><span class="muted">[${escapeHtml(r.platform || "")}]</span> ${title} ${url ? `<a href="${url}" target="_blank">链接</a>` : ""}</li>`;
-    }).join("");
-    el.innerHTML = `<p>认可记录: <strong>${data.count || rows.length}</strong> 条</p>${list ? `<ul class="likes-list">${list}</ul>` : ""}`;
+    const total = data.count || 0;
+    const head = `<p class="muted recognition-list-head">共 <strong>${total}</strong> 条（去重后展示近期互动与收藏库快照）</p>`;
+    const hint = data.hint ? `<p class="muted recognition-hint">${escapeHtml(data.hint)}</p>` : "";
+    const body =
+      renderRecognitionList(recent, "近期互动（点赞 / 赞同 / 投币 / 评论）") +
+      renderRecognitionList(inventory, "收藏库快照（长期偏好库，画像权重较低）");
+    el.innerHTML = `${head}${hint}${body || "<p class='muted'>当前筛选下无记录。</p>"}`;
   } catch (err) {
-    el.innerHTML = `<div class="alert alert-error">无法加载认可记录：${escapeHtml(err.message)}</div>`;
+    el.innerHTML = `<div class="alert alert-error">无法加载行为认可：${escapeHtml(err.message)}</div>`;
   }
 }
 
 /* 运行记录 */
 let _runsRefreshTimer = null;
+const _runsSelectedIds = new Set();
+let _runsVisibleIds = [];
 
 function initRuns() {
   void bootstrapSourceLabels();
@@ -5470,7 +5938,73 @@ function initRuns() {
   });
   document.getElementById("btn-runs-cleanup-preview")?.addEventListener("click", () => runCleanup(true));
   document.getElementById("btn-runs-cleanup")?.addEventListener("click", () => runCleanup(false));
+  document.getElementById("runs-select-all")?.addEventListener("change", (e) => {
+    const checked = Boolean(e.target.checked);
+    if (checked) {
+      _runsVisibleIds.forEach((id) => _runsSelectedIds.add(id));
+    } else {
+      _runsVisibleIds.forEach((id) => _runsSelectedIds.delete(id));
+    }
+    syncRunsSelectionUi();
+  });
+  document.getElementById("btn-runs-clear-selection")?.addEventListener("click", () => {
+    _runsSelectedIds.clear();
+    syncRunsSelectionUi();
+  });
+  document.getElementById("btn-runs-batch-delete")?.addEventListener("click", () => {
+    void batchDeleteRunRecords().catch((err) => {
+      const el = document.getElementById("runs-list");
+      el?.insertAdjacentHTML("afterbegin", `<div class="alert alert-error">${escapeHtml(err.message)}</div>`);
+    });
+  });
   loadRunsList();
+}
+
+function syncRunsSelectionUi() {
+  const bar = document.getElementById("runs-batch-bar");
+  const countEl = document.getElementById("runs-selected-count");
+  const deleteBtn = document.getElementById("btn-runs-batch-delete");
+  const selectAll = document.getElementById("runs-select-all");
+  const count = _runsSelectedIds.size;
+  if (countEl) countEl.textContent = `已选 ${count} 条`;
+  if (deleteBtn) deleteBtn.disabled = count === 0;
+  if (bar) bar.classList.toggle("hidden", count === 0);
+  if (selectAll) {
+    const visibleSelected = _runsVisibleIds.filter((id) => _runsSelectedIds.has(id)).length;
+    selectAll.checked = _runsVisibleIds.length > 0 && visibleSelected === _runsVisibleIds.length;
+    selectAll.indeterminate = visibleSelected > 0 && visibleSelected < _runsVisibleIds.length;
+  }
+  document.querySelectorAll(".runs-row-select").forEach((input) => {
+    const id = input.getAttribute("data-run-id");
+    if (!id) return;
+    input.checked = _runsSelectedIds.has(id);
+  });
+}
+
+async function batchDeleteRunRecords() {
+  const ids = [..._runsSelectedIds];
+  if (!ids.length) return;
+  const deleteBtn = document.getElementById("btn-runs-batch-delete");
+  if (deleteBtn?.disabled) return;
+  const ok = window.confirm(
+    `确定删除所选 ${ids.length} 条运行记录？\n将移除 ~/.osint/runs/ 下对应目录，不可恢复。`,
+  );
+  if (!ok) return;
+  if (deleteBtn) deleteBtn.disabled = true;
+  try {
+    const data = await api("POST", "/api/runs/batch-delete", { run_ids: ids });
+    const deleted = data.deleted || [];
+    const errors = data.errors || [];
+    _runsSelectedIds.clear();
+    if (errors.length) {
+      showToast(`已删除 ${deleted.length} 条，${errors.length} 条失败`, deleted.length ? "warn" : "error");
+    } else {
+      showToast(`已删除 ${deleted.length} 条运行记录`, "success");
+    }
+    await loadRunsList();
+  } finally {
+    syncRunsSelectionUi();
+  }
 }
 
 async function deleteRunRecord(runId) {
@@ -5577,9 +6111,12 @@ async function loadRunsList() {
       _runsRefreshTimer = setTimeout(() => loadRunsList(), 12000);
     }
     if (!runs.length) {
+      _runsVisibleIds = [];
+      syncRunsSelectionUi();
       el.innerHTML = renderEmptyStateRich("runs", "暂无匹配的运行记录", "完成一次搜罗后会出现；可调整上方筛选条件");
       return;
     }
+    _runsVisibleIds = runs.map((r) => r.run_id).filter(Boolean);
     el.innerHTML = `<div class="ui-inset-group runs-list-group">${runs.map((r) => {
         const st = r.status || "done";
         const errCount = Number(r.source_error_count) || 0;
@@ -5596,7 +6133,13 @@ async function loadRunsList() {
         const profileLine = r.profile ? `模式：${escapeHtml(profileLabel(r.profile))}` : "";
         const srcLine = sources ? `实采：${escapeHtml(sources)}` : "";
         const meta = [profileLine, srcLine, sub].filter(Boolean).join(" · ");
+        const runId = r.run_id || "";
+        const checked = _runsSelectedIds.has(runId) ? " checked" : "";
+        const runningHint = st === "running" ? " title=\"进行中的任务删除前将先尝试取消\"" : "";
         return `<div class="ui-list-row runs-list-row">
+          <label class="runs-row-check" aria-label="选择运行记录">
+            <input type="checkbox" class="runs-row-select" data-run-id="${escapeHtml(runId)}"${checked}${runningHint}>
+          </label>
           <div class="ui-list-row-main">
             <div class="ui-list-row-meta muted">${escapeHtml(formatRunTime(r.started_at))}</div>
             <a class="ui-list-row-title" href="/runs/${r.run_id}">${escapeHtml(r.query || "（无话题）")}</a>
@@ -5610,6 +6153,15 @@ async function loadRunsList() {
           <div class="ui-list-row-actions">${_runListActions(r)}</div>
         </div>`;
       }).join("")}</div>`;
+    el.querySelectorAll(".runs-row-select").forEach((input) => {
+      input.addEventListener("change", () => {
+        const id = input.getAttribute("data-run-id");
+        if (!id) return;
+        if (input.checked) _runsSelectedIds.add(id);
+        else _runsSelectedIds.delete(id);
+        syncRunsSelectionUi();
+      });
+    });
     el.querySelectorAll(".btn-delete-run").forEach((btn) => {
       btn.addEventListener("click", () => {
         void deleteRunRecord(btn.getAttribute("data-run-id")).catch((err) => {
@@ -5617,6 +6169,7 @@ async function loadRunsList() {
         });
       });
     });
+    syncRunsSelectionUi();
   } catch (err) {
     clearTimeout(timeout);
     const msg = err.name === "AbortError"

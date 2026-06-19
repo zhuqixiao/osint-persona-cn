@@ -32,6 +32,8 @@ DEFAULT_DIRECTIVES: dict[str, Any] = {
         "query_analyze": True,
         "source_plan": True,
         "alias_discover": True,
+        "foreign_expand": True,
+        "relevance_refine": True,
         "summarize": True,
         "report": True,
         "persona_simulate": True,

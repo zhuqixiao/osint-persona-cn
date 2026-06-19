@@ -58,9 +58,9 @@ CAPABILITIES: list[dict[str, Any]] = [
     },
     {
         "platform": "weixin",
-        "behavior": "微信文章搜索",
+        "behavior": "搜狗微信公众平台文章检索",
         "status": "supported",
-        "note": "仅搜罗源（搜狗微信），无行为导入；见 search.weixin 配置",
+        "note": "仅搜罗源（搜狗微信公众平台的公众号检索），无行为导入；见 search.weixin 配置",
     },
     {
         "platform": "bilibili",

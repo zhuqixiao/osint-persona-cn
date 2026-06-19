@@ -9,14 +9,7 @@ from typing import Any
 
 from osint_toolkit.storage.sqlite import connect
 
-INVENTORY_SNAPSHOT_TYPES = frozenset(
-    {
-        "bilibili_follow",
-        "bilibili_fav",
-        "zhihu_fav",
-        "zhihu_follow",
-    }
-)
+from osint_toolkit.ingest.recognition_types import INVENTORY_SNAPSHOT_TYPES
 
 _HIGH_VALUE_TYPES = frozenset(
     {

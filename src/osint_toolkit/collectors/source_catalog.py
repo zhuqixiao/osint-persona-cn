@@ -11,6 +11,47 @@ from osint_toolkit.collectors.source_auth import auth_fields_for_catalog
 _HYBRID_SOURCES = frozenset({"zhihu", "bilibili"})
 _COMMENT_MINE_SOURCES = frozenset({"zhihu", "bilibili", "v2ex"})
 _EXPAND_SOURCES = frozenset({"zhihu"})
+# content_locale: zh | intl | mixed — 主内容语言倾向
+# accept_foreign_queries: 采集时是否合并外文拓展词
+_SOURCE_LOCALE: dict[str, tuple[str, bool]] = {
+    "zhihu": ("zh", False),
+    "bilibili": ("zh", False),
+    "weixin": ("zh", False),
+    "v2ex": ("zh", False),
+    "tieba": ("zh", False),
+    "xiaohongshu": ("zh", False),
+    "jike": ("zh", False),
+    "jianshu": ("zh", False),
+    "weibo": ("zh", False),
+    "nga": ("zh", False),
+    "maimai": ("zh", False),
+    "ithome": ("zh", False),
+    "sspai": ("zh", False),
+    "juejin": ("zh", False),
+    "chiphell": ("zh", False),
+    "smzdm": ("zh", False),
+    "gcores": ("zh", False),
+    "kr36": ("zh", False),
+    "huxiu": ("zh", False),
+    "caixin": ("zh", False),
+    "thepaper": ("zh", False),
+    "ifeng": ("zh", False),
+    "douban": ("zh", False),
+    "xiaoyuzhou": ("zh", False),
+    "ximalaya": ("zh", False),
+    "netease_music": ("zh", False),
+    "qq_music": ("zh", False),
+    "kugou": ("zh", False),
+    "migu": ("zh", False),
+    "web": ("mixed", True),
+    "github": ("intl", True),
+    "reddit": ("intl", True),
+    "hackernews": ("intl", True),
+    "solidot": ("mixed", True),
+    "rss": ("mixed", True),
+}
+# 综合性原生信源：用户勾选后不因领域包弱分被跳过（音乐站除外）
+_COMPREHENSIVE_NATIVE_CATEGORIES = frozenset({"core", "community"})
 
 
 def _entry_capabilities(entry: dict[str, Any]) -> dict[str, Any]:
@@ -32,6 +73,9 @@ def _entry_capabilities(entry: dict[str, Any]) -> dict[str, Any]:
         "fetch_content": bool(entry.get("fetch_content", str(entry.get("category") or "") != "music")),
     }
     caps.update(auth_fields_for_catalog(sid))
+    locale, accept_foreign = _SOURCE_LOCALE.get(sid, ("zh", False))
+    caps["content_locale"] = str(entry.get("content_locale") or locale)
+    caps["accept_foreign_queries"] = bool(entry.get("accept_foreign_queries", accept_foreign))
     return caps
 
 
@@ -63,11 +107,11 @@ SOURCE_ENTRIES: list[dict[str, Any]] = [
     },
     {
         "id": "weixin",
-        "label": "微信",
+        "label": "搜狗微信公众平台",
         "category": "core",
         "kind": "native",
         "default": True,
-        "description": "搜狗微信搜索，含阅读量过滤",
+        "description": "搜狗微信公众平台的公众号文章检索（非微信客户端），含阅读量过滤",
     },
     # —— 社区 ——
     {
@@ -404,6 +448,33 @@ def get_default_source_ids() -> list[str]:
 
 def get_all_source_ids() -> list[str]:
     return [str(e["id"]) for e in SOURCE_ENTRIES]
+
+
+def get_source_locale_meta(source_id: str) -> dict[str, Any]:
+    """Return content_locale and accept_foreign_queries for a catalog source."""
+    entry = next((e for e in SOURCE_ENTRIES if str(e.get("id")) == source_id), None)
+    if entry:
+        caps = _entry_capabilities(entry)
+        return {
+            "content_locale": caps.get("content_locale", "zh"),
+            "accept_foreign_queries": bool(caps.get("accept_foreign_queries")),
+        }
+    locale, accept_foreign = _SOURCE_LOCALE.get(source_id, ("zh", False))
+    return {"content_locale": locale, "accept_foreign_queries": accept_foreign}
+
+
+def any_source_accepts_foreign(sources: list[str]) -> bool:
+    return any(get_source_locale_meta(s).get("accept_foreign_queries") for s in sources)
+
+
+def comprehensive_native_source_ids() -> frozenset[str]:
+    """知乎/B站/V2EX 等综合性原生采集器：领域包只用于加分与垂直站自动启用，不用于跳过用户勾选。"""
+    return frozenset(
+        str(e["id"])
+        for e in SOURCE_ENTRIES
+        if e.get("kind") == "native"
+        and str(e.get("category") or "") in _COMPREHENSIVE_NATIVE_CATEGORIES
+    )
 
 
 def get_site_search_entries() -> list[dict[str, Any]]:

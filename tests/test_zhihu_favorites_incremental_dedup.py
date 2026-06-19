@@ -61,8 +61,6 @@ async def test_zhihu_favorites_second_sync_logs_nothing_new(monkeypatch, tmp_pat
     monkeypatch.setattr(zhihu_account, "_url_token", fake_token)
     monkeypatch.setattr(zhihu_account, "HttpClient", lambda: FakeClient())
     monkeypatch.setattr(zhihu_account, "log_event_deduped", track_dedup)
-    monkeypatch.setattr(zhihu_account, "save_endorsement", lambda **_k: None)
-
     first = await zhihu_account.ingest_favorites(limit=5)
     assert len(first) == 1
     assert len(logged) == 1

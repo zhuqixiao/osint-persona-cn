@@ -69,7 +69,7 @@ OPERATIONS_RUNBOOK: dict[str, Any] = {
         },
     },
     "platform_notes": {
-        "weixin": "微信仅用于搜罗搜索（搜狗微信），无行为导入；需 sogou/weixin Cookie",
+        "weixin": "搜狗微信公众平台仅用于公众号文章搜罗（搜狗检索），无行为导入；需 sogou/weixin Cookie",
         "bilibili_comments": "发评历史：扩展拉取 AICU 或开启 sync.aicu_enabled 后完整同步",
     },
 }

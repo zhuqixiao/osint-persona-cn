@@ -26,7 +26,7 @@ async def test_mine_comments_before_summarize(monkeypatch):
     async def fake_collect(source: str, query: str, limit: int):
         return ([bili_item], []) if source == "bilibili" else ([], [])
 
-    async def fake_mine(items, *, top, no_ai, disabled_steps=None, comment_mine_sources=None):
+    async def fake_mine(items, *, top, no_ai, disabled_steps=None, comment_mine_sources=None, search_cfg=None):
         order.append("mine")
         items[0].layers["comments_summary"] = "社区观点测试"
         return [{"item_id": items[0].id, "comments_summary": "社区观点测试"}]

@@ -9,7 +9,6 @@ logger = logging.getLogger(__name__)
 
 from osint_toolkit.http.client import HttpClient
 from osint_toolkit.ingest import account_sync_state as sync_state
-from osint_toolkit.ingest.likes import save_endorsement
 from osint_toolkit.ingest.zhihu_activities import (
     activity_entry_from_item,
     classify_activity,
@@ -40,20 +39,6 @@ def _log_zhihu_activity(event_type: str, entry: dict[str, Any]) -> None:
     dedup_key = f"{event_type}|{url}|{event_kind}"
     if not log_event_deduped(event_type, entry, dedup_key):
         return
-    if event_type == "zhihu_vote":
-        save_endorsement(
-            platform="zhihu",
-            target_type="answer",
-            url=url,
-            content=entry.get("title", ""),
-        )
-    elif event_type == "zhihu_fav":
-        save_endorsement(
-            platform="zhihu",
-            target_type="collection",
-            url=url,
-            content=entry.get("title", ""),
-        )
 
 
 async def ingest_profile_meta() -> dict[str, Any]:
@@ -197,13 +182,7 @@ async def ingest_voteanswers(limit: int = 500) -> list[dict]:
     fresh = sync_state.filter_new_by_urls(results, seen_urls)
     for entry in fresh:
         url = str(entry.get("url") or "")
-        if log_event_deduped("zhihu_vote", entry, f"zhihu_vote|{url}"):
-            save_endorsement(
-                platform="zhihu",
-                target_type="answer",
-                url=url,
-                content=entry.get("title", ""),
-            )
+        log_event_deduped("zhihu_vote", entry, f"zhihu_vote|{url}")
     _persist_zhihu(votes=results)
     return fresh
 
@@ -367,7 +346,21 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
                         break
                     for raw in items:
                         content = raw.get("content") or raw
-                        title = content.get("title") or coll.get("title", "")
+                        collection_title = str(coll.get("title") or "").strip()
+                        question = (content.get("question") or {}) if isinstance(content, dict) else {}
+                        title = (
+                            str(question.get("title") or "").strip()
+                            or str(content.get("title") or "").strip()
+                            or str(raw.get("title") or "").strip()
+                        )
+                        if not title:
+                            excerpt = str(content.get("excerpt") or "").strip()
+                            if excerpt:
+                                title = excerpt[:120]
+                        if not title and collection_title:
+                            title = f"（收藏夹：{collection_title}）"
+                        if not title:
+                            title = "未命名内容"
                         url_ = content_url_from_target(content, raw)
                         if not url_ or url_ in seen:
                             continue
@@ -377,7 +370,7 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
                             "title": title,
                             "url": url_,
                             "type": "collection_item",
-                            "collection": coll.get("title", ""),
+                            "collection": collection_title,
                         }
                         results.append(entry)
                         if len(results) >= limit:
@@ -397,12 +390,6 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
     fresh = sync_state.filter_new_by_urls(results, seen_urls)
     for entry in fresh:
         url = str(entry.get("url") or "")
-        if log_event_deduped("zhihu_fav", entry, f"zhihu_fav|{url}"):
-            save_endorsement(
-                platform="zhihu",
-                target_type="collection",
-                url=url,
-                content=entry.get("title", ""),
-            )
+        log_event_deduped("zhihu_fav", entry, f"zhihu_fav|{url}")
     _persist_zhihu(favorites=results)
     return fresh

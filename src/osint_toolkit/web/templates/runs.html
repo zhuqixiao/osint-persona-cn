@@ -29,6 +29,18 @@
   </div>
 </div>
 
+<div id="runs-batch-bar" class="runs-batch-bar card hidden" aria-live="polite">
+  <label class="runs-select-all-label">
+    <input type="checkbox" id="runs-select-all" aria-label="全选当前列表">
+    <span>全选</span>
+  </label>
+  <span id="runs-selected-count" class="muted">已选 0 条</span>
+  <div class="runs-batch-actions">
+    <button type="button" class="btn btn-sm btn-secondary" id="btn-runs-batch-delete" disabled>删除所选</button>
+    <button type="button" class="btn btn-sm btn-ghost" id="btn-runs-clear-selection">取消选择</button>
+  </div>
+</div>
+
 <div id="runs-list" class="muted">加载中…</div>
 
 <details class="card runs-cleanup-panel mt-1">

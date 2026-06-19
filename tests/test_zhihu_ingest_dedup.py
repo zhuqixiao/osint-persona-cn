@@ -52,8 +52,6 @@ async def test_ingest_activities_skips_answer_votes_when_requested(monkeypatch):
     monkeypatch.setattr(zhihu_account, "log_event_deduped", track_dedup)
     monkeypatch.setattr(zhihu_account, "_zhihu_section", lambda: {})
     monkeypatch.setattr(zhihu_account, "_persist_zhihu", lambda **_k: None)
-    monkeypatch.setattr(zhihu_account, "save_endorsement", lambda **_k: None)
-
     class FakeResp:
         status_code = 200
 

@@ -15,7 +15,7 @@ from osint_toolkit.ingest.bilibili_account import (
     ingest_likes,
 )
 from osint_toolkit.ingest.browser import ingest_browser_history
-from osint_toolkit.ingest.likes import list_endorsements
+from osint_toolkit.ingest.likes import list_recognition_records
 from osint_toolkit.ingest.zhihu_account import (
     ingest_activities,
     ingest_browsing,
@@ -237,8 +237,7 @@ async def ingest_zhihu() -> dict[str, Any]:
 
 
 def get_likes() -> dict[str, Any]:
-    rows = list_endorsements()
-    return {"count": len(rows), "rows": rows}
+    return list_recognition_records(limit=50)
 
 
 async def ingest_aicu() -> dict[str, Any]:

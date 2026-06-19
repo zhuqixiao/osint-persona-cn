@@ -56,10 +56,17 @@ from osint_toolkit.web.schemas import (
     ResearchNodePatch,
     ResearchSuggestRequest,
     RunsCleanupRequest,
+    RunsBatchDeleteRequest,
     ResearchInsightRequest,
 )
 from osint_toolkit.utils.config import load_sync_config
-from osint_toolkit.utils.safe_path import PathSecurityError, assert_prompt_name, assert_run_id, assert_safe_id
+from osint_toolkit.utils.safe_path import (
+    PathSecurityError,
+    assert_prompt_name,
+    assert_run_id,
+    assert_safe_id,
+    coerce_run_dir_id,
+)
 from osint_toolkit.web.tasks import (
     SearchQueueFullError,
     cancel_job,
@@ -102,7 +109,7 @@ async def api_health() -> dict[str, str]:
 
 def _validated_run_id(run_id: str) -> str:
     try:
-        return assert_run_id(run_id)
+        return coerce_run_dir_id(run_id)
     except PathSecurityError as exc:
         raise HTTPException(400, detail=str(exc)) from exc
 
@@ -781,8 +788,16 @@ async def api_ingest_full_sync_cancel(job_id: str) -> dict[str, Any]:
 
 
 @router.get("/ingest/likes")
+@router.get("/ingest/recognition")
 async def api_ingest_likes() -> dict[str, Any]:
     return ingest.get_likes()
+
+
+@router.get("/health/intl-reachability")
+async def api_intl_reachability(force: bool = False) -> dict[str, Any]:
+    from osint_toolkit.http.reachability import probe_international_reachability
+
+    return await probe_international_reachability(force=force)
 
 
 @router.post("/extension/events")
@@ -870,6 +885,55 @@ async def api_runs(limit: int = 50) -> dict[str, Any]:
     return {"runs": data}
 
 
+@router.post("/runs/batch-delete")
+async def api_runs_batch_delete(body: RunsBatchDeleteRequest) -> dict[str, Any]:
+    from osint_toolkit.web.tasks import cancel_job, get_job
+
+    deleted: list[str] = []
+    skipped: list[dict[str, str]] = []
+    errors: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for raw_id in body.run_ids:
+        run_id = str(raw_id or "").strip()
+        if not run_id or run_id in seen:
+            continue
+        seen.add(run_id)
+        try:
+            run_id = _validated_run_id(run_id)
+        except HTTPException as exc:
+            errors.append({"run_id": run_id, "error": str(exc.detail)})
+            continue
+        job = get_job(run_id)
+        if job and job.get("status") == "running":
+            cancel_job(run_id)
+            skipped.append({"run_id": run_id, "reason": "was_running_cancelled"})
+        try:
+            await asyncio.to_thread(runs.delete_run, run_id)
+            deleted.append(run_id)
+        except FileNotFoundError:
+            skipped.append({"run_id": run_id, "reason": "not_found"})
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"run_id": run_id, "error": str(exc)})
+    return {
+        "deleted": deleted,
+        "skipped": skipped,
+        "errors": errors,
+        "count": len(deleted),
+    }
+
+
+@router.post("/runs/cleanup")
+async def api_runs_cleanup(body: RunsCleanupRequest) -> dict[str, Any]:
+    result = await asyncio.to_thread(
+        runs.cleanup_runs,
+        older_than_days=body.older_than_days,
+        keep_latest=body.keep_latest,
+        statuses=body.statuses,
+        dry_run=body.dry_run,
+    )
+    return result
+
+
 @router.get("/runs/{run_id}")
 async def api_run_detail(run_id: str, step: str | None = None) -> Any:
     import asyncio
@@ -918,18 +982,6 @@ async def api_run_delete(run_id: str) -> dict[str, Any]:
     except FileNotFoundError as exc:
         raise HTTPException(404, detail=str(exc)) from exc
     return {"run_id": run_id, "deleted": True}
-
-
-@router.post("/runs/cleanup")
-async def api_runs_cleanup(body: RunsCleanupRequest) -> dict[str, Any]:
-    result = await asyncio.to_thread(
-        runs.cleanup_runs,
-        older_than_days=body.older_than_days,
-        keep_latest=body.keep_latest,
-        statuses=body.statuses,
-        dry_run=body.dry_run,
-    )
-    return result
 
 
 @router.get("/ai/directives")
