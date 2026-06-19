@@ -34,14 +34,40 @@ def _useful_titles_for_run(run_id: str) -> list[str]:
     return titles[:10]
 
 
-def generate_insight(*, tree_id: str, run_id: str, parent_node_id: str | None = None) -> dict[str, Any]:
-    try:
-        run_data = show_run(run_id)
-    except FileNotFoundError as exc:
-        return {"ok": False, "error": str(exc)}
+def _run_item_titles(run_id: str, *, limit: int = 12) -> list[str]:
+    run_dir = get_data_dir() / "runs" / run_id
+    titles: list[str] = []
+    for path in run_dir.glob("*items_dedup.json"):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            items = raw if isinstance(raw, list) else raw.get("items") or []
+            for it in items:
+                if isinstance(it, dict) and it.get("title"):
+                    titles.append(str(it["title"])[:100])
+                if len(titles) >= limit:
+                    return titles
+        except json.JSONDecodeError:
+            continue
+    return titles
+
+
+def _run_context(run_id: str) -> tuple[str, str, list[str]]:
+    run_data = show_run(run_id)
+    query = str(run_data.get("query") or "")
     report = str(run_data.get("report") or "")[:6000]
     useful = _useful_titles_for_run(run_id)
-    context = f"话题: {run_data.get('query', '')}\n报告:\n{report}\n有用条目: {', '.join(useful)}"
+    if not report:
+        titles = useful or _run_item_titles(run_id)
+        report = "（未生成情报报告）\n条目摘要:\n" + "\n".join(f"- {t}" for t in titles[:12])
+    return query, report, useful
+
+
+def generate_insight(*, tree_id: str, run_id: str, parent_node_id: str | None = None) -> dict[str, Any]:
+    try:
+        query, report, useful = _run_context(run_id)
+    except FileNotFoundError as exc:
+        return {"ok": False, "error": str(exc)}
+    context = f"话题: {query}\n报告:\n{report}\n有用条目: {', '.join(useful)}"
     try:
         client = DeepSeekClient()
         text = client.chat(
@@ -82,9 +108,8 @@ def suggest_queries(*, run_id: str | None = None, tree_id: str | None = None) ->
     report = ""
     if run_id:
         try:
-            run_data = show_run(run_id)
-            base_query = str(run_data.get("query") or "")
-            report = str(run_data.get("report") or "")[:4000]
+            base_query, report, _ = _run_context(run_id)
+            report = report[:4000]
         except FileNotFoundError:
             pass
     if tree_id and not base_query:

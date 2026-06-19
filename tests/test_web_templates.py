@@ -30,6 +30,8 @@ def test_workspace_core_options_grouped():
     assert "更多选项" in html
     assert "高级选项" in html
     assert 'id="setup-wizard"' in html
+    assert 'id="research-suggested-queries"' in html
+    assert "workspace-split-view" in html
 
 
 def test_app_js_product_polish_helpers():

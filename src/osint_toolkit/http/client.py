@@ -30,7 +30,7 @@ class HttpClient:
         cookie = cookie_header_for_url(url)
         if cookie:
             headers["Cookie"] = cookie
-        if "bilibili.com" in url:
+        if "bilibili.com" in url or "hdslb.com" in url:
             headers["Referer"] = "https://www.bilibili.com/"
             headers["Origin"] = "https://www.bilibili.com"
         elif "zhihu.com" in url:

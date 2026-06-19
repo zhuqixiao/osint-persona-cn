@@ -108,9 +108,12 @@
 </div>
 
 <div class="workspace-panel-tabs" role="tablist" aria-label="搜罗内容分区">
-  <button type="button" class="workspace-panel-tab active" role="tab" aria-selected="true" data-panel="results">结果</button>
-  <button type="button" class="workspace-panel-tab" role="tab" aria-selected="false" data-panel="report">报告</button>
-  <button type="button" class="workspace-panel-tab" role="tab" aria-selected="false" data-panel="research">研究</button>
+  <button type="button" class="workspace-panel-tab active" role="tab" aria-selected="true" data-panel="results">搜索结果</button>
+  <button type="button" class="workspace-panel-tab" role="tab" aria-selected="false" data-panel="report">情报报告</button>
+  <button type="button" class="workspace-panel-tab" role="tab" aria-selected="false" data-panel="research">研究树</button>
+  <label class="workspace-split-toggle" id="workspace-split-wrap" title="宽屏下同时查看结果与报告">
+    <input type="checkbox" id="workspace-split-view"> 结果/报告分屏
+  </label>
 </div>
 
 <div class="results-layout panel-results">
@@ -166,6 +169,7 @@
     </div>
     <div id="research-feedback" class="alert hidden"></div>
     <div id="research-actions" class="research-actions mt-1"></div>
+    <div id="research-suggested-queries" class="chip-group research-suggested-queries mt-1 hidden"></div>
     <div id="research-markmap" class="research-markmap hidden"></div>
   </section>
 </div>

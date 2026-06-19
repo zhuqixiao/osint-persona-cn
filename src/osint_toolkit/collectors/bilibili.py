@@ -100,6 +100,12 @@ class BilibiliCollector(BaseCollector):
         subtitle_result = await bilibili_sdk.fetch_subtitle_for_url(item.url)
         text = str(subtitle_result.get("text") or "").strip()
         if not text:
+            item.layers["subtitle"] = {
+                "text": "",
+                "kind": "none",
+                "source": subtitle_result.get("source"),
+                "reason": subtitle_result.get("reason", "no_tracks"),
+            }
             return
         track = subtitle_result.get("track")
         kind = "legacy"

@@ -16,6 +16,7 @@ from osint_toolkit.utils.config import load_config
 
 _STATUS_FILE = "extension_status.json"
 logger = logging.getLogger(__name__)
+_MAX_AUTO_SAVE_PER_BATCH = 5
 
 
 def _status_path():
@@ -123,6 +124,13 @@ async def ingest_extension_batch(payloads: list[dict[str, Any]]) -> dict[str, An
     all_save = list(dict.fromkeys(save_urls + auto_urls))
     saved_knowledge: list[str] = []
     auto_save_errors: list[str] = []
+    save_cap_note = ""
+    if len(all_save) > _MAX_AUTO_SAVE_PER_BATCH:
+        save_cap_note = (
+            f"本批自动收录已限流：仅处理前 {_MAX_AUTO_SAVE_PER_BATCH} 条，"
+            f"其余 {len(all_save) - _MAX_AUTO_SAVE_PER_BATCH} 条跳过（事件已入库）"
+        )
+        all_save = all_save[:_MAX_AUTO_SAVE_PER_BATCH]
     if all_save:
         saved_knowledge, auto_save_errors = await _save_to_knowledge(all_save)
 
@@ -154,7 +162,7 @@ async def ingest_extension_batch(payloads: list[dict[str, Any]]) -> dict[str, An
         "by_type": by_type,
         "saved_to_knowledge": len(saved_knowledge),
         "saved_urls": saved_knowledge[:10],
-        "warnings": (auto_save_errors + parse_errors)[:5],
+        "warnings": ([save_cap_note] if save_cap_note else []) + (auto_save_errors + parse_errors)[:5],
         "auto_save_errors": auto_save_errors[:5],
         "parse_errors": parse_errors[:5],
         "persona_rebuild_suggested": bool(rebuild_info.get("persona_rebuild_suggested")),

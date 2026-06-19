@@ -1,18 +1,37 @@
 const EventQueue = {
   _key: "pendingEvents",
   _maxAttempts: 3,
+  _batchSize: 25,
+  _maxQueue: 500,
+  _maxBodyChars: 120000,
   async enqueue(event) {
     if (event.kind === "page_visit" && EventQueue._shouldSkipVisit(event.url)) {
       return;
     }
     const items = await EventQueue._load();
-    items.push({ ...event, ts: Date.now() });
-    if (items.length > 500) items.splice(0, items.length - 500);
+    items.push(EventQueue._trimEvent({ ...event, ts: Date.now() }));
+    if (items.length > EventQueue._maxQueue) items.splice(0, items.length - EventQueue._maxQueue);
     await EventQueue._save(items);
     EventQueue._updateBadge(items.length);
     if (items.length >= 20) {
       await EventQueue.flush();
     }
+  },
+  _trimEvent(event) {
+    const trimmed = { ...event };
+    if (trimmed.body == null) return trimmed;
+    try {
+      const json = JSON.stringify(trimmed.body);
+      if (json.length <= EventQueue._maxBodyChars) return trimmed;
+      trimmed.body = {
+        _truncated: true,
+        _original_bytes: json.length,
+        _preview: json.slice(0, 2000),
+      };
+    } catch (_) {
+      trimmed.body = { _truncated: true, _error: "unserializable" };
+    }
+    return trimmed;
   },
   _shouldSkipVisit(url) {
     if (!url) return true;
@@ -52,53 +71,87 @@ const EventQueue = {
     } catch (_) {}
   },
   async flush() {
-    const items = await EventQueue._load();
-    if (!items.length) {
+    let remaining = await EventQueue._load();
+    if (!remaining.length) {
       EventQueue._updateBadge(0);
       return { accepted: 0, skipped: 0, empty: true, pending: 0 };
     }
     const apiBase = await OSINTConfig.getApiBase();
     let lastErr = "";
-    for (let attempt = 0; attempt < EventQueue._maxAttempts; attempt += 1) {
-      try {
-        const resp = await fetch(`${apiBase}/api/extension/events`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            events: items,
-            version: OSINTConfig.extVersion,
-          }),
-        });
-        if (!resp.ok) {
-          let detail = `HTTP ${resp.status}`;
-          try {
-            const errBody = await resp.json();
-            if (errBody.detail) {
-              detail = typeof errBody.detail === "string" ? errBody.detail : JSON.stringify(errBody.detail);
-            }
-          } catch (_) {}
-          throw new Error(detail);
-        }
-        const result = await resp.json();
-        await EventQueue._save([]);
-        const stats = {
-          lastFlush: new Date().toISOString(),
-          lastAccepted: result.accepted || 0,
-          lastSkipped: result.skipped || 0,
-        };
-        await EventQueue._setStorage({ stats, lastFlushError: "" });
-        EventQueue._updateBadge(0);
-        return { ...result, empty: false, pending: 0 };
-      } catch (err) {
-        lastErr = String(err.message || err);
-        if (attempt < EventQueue._maxAttempts - 1) {
-          await EventQueue._sleep(800 * (attempt + 1));
+    let totalAccepted = 0;
+    let totalSkipped = 0;
+    let totalSaved = 0;
+    const started = remaining.length;
+
+    while (remaining.length > 0) {
+      const batch = remaining.slice(0, EventQueue._batchSize);
+      let batchOk = false;
+      for (let attempt = 0; attempt < EventQueue._maxAttempts; attempt += 1) {
+        try {
+          const resp = await fetch(`${apiBase}/api/extension/events`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              events: batch,
+              version: OSINTConfig.extVersion,
+            }),
+          });
+          if (!resp.ok) {
+            let detail = `HTTP ${resp.status}`;
+            try {
+              const errBody = await resp.json();
+              if (errBody.detail) {
+                detail = typeof errBody.detail === "string" ? errBody.detail : JSON.stringify(errBody.detail);
+              }
+            } catch (_) {}
+            throw new Error(detail);
+          }
+          const result = await resp.json();
+          totalAccepted += result.accepted || 0;
+          totalSkipped += result.skipped || 0;
+          totalSaved += result.saved_to_knowledge || 0;
+          remaining = remaining.slice(batch.length);
+          await EventQueue._save(remaining);
+          EventQueue._updateBadge(remaining.length);
+          batchOk = true;
+          break;
+        } catch (err) {
+          lastErr = String(err.message || err);
+          if (attempt < EventQueue._maxAttempts - 1) {
+            await EventQueue._sleep(800 * (attempt + 1));
+          }
         }
       }
+      if (!batchOk) {
+        await EventQueue._setStorage({ lastFlushError: lastErr });
+        EventQueue._updateBadge(remaining.length, true);
+        return {
+          error: lastErr,
+          pending: remaining.length,
+          accepted: totalAccepted,
+          skipped: totalSkipped,
+          saved_to_knowledge: totalSaved,
+          batches_sent: started - remaining.length,
+        };
+      }
     }
-    await EventQueue._setStorage({ lastFlushError: lastErr });
-    EventQueue._updateBadge(items.length, true);
-    return { error: lastErr, pending: items.length };
+
+    const stats = {
+      lastFlush: new Date().toISOString(),
+      lastAccepted: totalAccepted,
+      lastSkipped: totalSkipped,
+      lastSavedKnowledge: totalSaved,
+    };
+    await EventQueue._setStorage({ stats, lastFlushError: "" });
+    EventQueue._updateBadge(0);
+    return {
+      accepted: totalAccepted,
+      skipped: totalSkipped,
+      saved_to_knowledge: totalSaved,
+      empty: false,
+      pending: 0,
+      batches_sent: Math.ceil(started / EventQueue._batchSize),
+    };
   },
   _setStorage(patch) {
     return new Promise((resolve) => {

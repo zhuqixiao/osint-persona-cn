@@ -196,7 +196,14 @@ function bilibiliShortRawHint(item, rawText) {
   const hasComments = item.layers?.comments?.length || item.layers?.comments_summary;
   const hasSubtitle = Boolean(item.layers?.subtitle?.text);
   if (hasComments || hasSubtitle) return "";
-  return `<p class="muted section-hint">B 站简介通常只有一句；亲测讨论多在评论区或口播字幕。请确认已勾选「挖掘 B 站热评」并在<a href="/settings">设置</a>同步 B 站 Cookie 后重试。</p>`;
+  const reason = item.layers?.subtitle?.reason;
+  const reasonHint =
+    reason === "no_tracks"
+      ? "该视频可能未开启 CC/AI 字幕"
+      : reason
+        ? `字幕未获取（${reason}）`
+        : "未拉取字幕";
+  return `<p class="muted section-hint">B 站简介通常较短；${reasonHint}。请勾选「挖掘 B 站热评」并在<a href="/settings">设置</a>同步 B 站 Cookie 后重试。</p>`;
 }
 
 function hydrateItemCards(container, items) {
@@ -392,11 +399,6 @@ function switchWorkspacePanel(panel) {
   const layout = document.querySelector(".results-layout");
   const tabs = document.querySelector(".workspace-panel-tabs");
   if (!layout || !tabs) return;
-  const isNarrow = window.matchMedia("(max-width: 960px)").matches;
-  if (!isNarrow) {
-    layout.classList.remove("panel-results", "panel-report", "panel-research");
-    return;
-  }
   const name = panel || "results";
   layout.classList.remove("panel-results", "panel-report", "panel-research");
   layout.classList.add(`panel-${name}`);
@@ -408,42 +410,123 @@ function switchWorkspacePanel(panel) {
   try {
     localStorage.setItem("workspacePanel", name);
   } catch (_) {}
+  applyWorkspaceSplitLayout();
+}
+
+function applyWorkspaceSplitLayout() {
+  const layout = document.querySelector(".results-layout");
+  const cb = document.getElementById("workspace-split-view");
+  if (!layout || !cb) return;
+  const wide = window.matchMedia("(min-width: 1281px)").matches;
+  layout.classList.toggle("workspace-split", wide && cb.checked);
+}
+
+function initWorkspaceSplitToggle() {
+  const cb = document.getElementById("workspace-split-view");
+  const wrap = document.getElementById("workspace-split-wrap");
+  if (!cb) return;
+  try {
+    cb.checked = localStorage.getItem("workspaceSplit") === "1";
+  } catch (_) {}
+  const mq = window.matchMedia("(min-width: 1281px)");
+  function onChange() {
+    if (wrap) wrap.style.display = mq.matches ? "" : "none";
+    applyWorkspaceSplitLayout();
+  }
+  cb.addEventListener("change", () => {
+    try {
+      localStorage.setItem("workspaceSplit", cb.checked ? "1" : "0");
+    } catch (_) {}
+    applyWorkspaceSplitLayout();
+  });
+  mq.addEventListener("change", onChange);
+  onChange();
 }
 
 function initWorkspacePanelTabs() {
   const tabs = document.querySelector(".workspace-panel-tabs");
-  const layout = document.querySelector(".results-layout");
-  if (!tabs || !layout) return;
-  const mq = window.matchMedia("(max-width: 960px)");
+  if (!tabs) return;
 
   tabs.querySelectorAll(".workspace-panel-tab").forEach((btn) => {
     btn.addEventListener("click", () => switchWorkspacePanel(btn.dataset.panel));
   });
 
-  function onBreakpointChange() {
-    if (mq.matches) {
-      let saved = "results";
-      try {
-        saved = localStorage.getItem("workspacePanel") || "results";
-      } catch (_) {}
-      switchWorkspacePanel(saved);
-    } else {
-      layout.classList.remove("panel-results", "panel-report", "panel-research");
-    }
-  }
-
-  mq.addEventListener("change", onBreakpointChange);
-  onBreakpointChange();
+  let saved = "results";
+  try {
+    saved = localStorage.getItem("workspacePanel") || "results";
+  } catch (_) {}
+  switchWorkspacePanel(saved);
 }
 
 const workspaceSession = {
   treeId: sessionStorage.getItem("researchTreeId") || null,
   parentNodeId: null,
+  selectedNodeId: null,
+  selectedRunId: sessionStorage.getItem("workspaceCurrentRunId") || null,
   activeRunId: sessionStorage.getItem("activeSearchRunId") || null,
   forkFromRunId: null,
-  currentRunId: null,
+  currentRunId: sessionStorage.getItem("workspaceCurrentRunId") || null,
   currentTree: null,
 };
+
+function setCurrentRunId(runId) {
+  workspaceSession.currentRunId = runId || null;
+  if (runId) {
+    workspaceSession.selectedRunId = runId;
+    sessionStorage.setItem("workspaceCurrentRunId", runId);
+  }
+}
+
+function getActiveResearchRunId() {
+  return workspaceSession.selectedRunId || workspaceSession.currentRunId || "";
+}
+
+function pickLatestSearchRunId(tree) {
+  const nodes = (tree?.nodes || []).filter(
+    (n) => n.kind === "search" && n.run_id && n.meta?.status !== "running",
+  );
+  if (!nodes.length) return null;
+  return nodes[nodes.length - 1].run_id;
+}
+
+function insightParentNodeId(runId) {
+  const node = workspaceSession.selectedNodeId
+    ? findResearchNode(workspaceSession.currentTree, workspaceSession.selectedNodeId)
+    : null;
+  if (node?.kind === "search" && node.run_id === runId) return node.id;
+  const searchId = findResearchNodeByRunId(workspaceSession.currentTree, runId)?.id;
+  return searchId || workspaceSession.parentNodeId || null;
+}
+
+function findResearchNodeByRunId(tree, runId) {
+  if (!tree || !runId) return null;
+  return (tree.nodes || []).find((n) => n.run_id === runId) || null;
+}
+
+function renderResearchActions() {
+  const actions = document.getElementById("research-actions");
+  if (!actions) return;
+  const runId = getActiveResearchRunId();
+  const hasTree = !!workspaceSession.treeId;
+  const selected = workspaceSession.selectedNodeId
+    ? findResearchNode(workspaceSession.currentTree, workspaceSession.selectedNodeId)
+    : null;
+  const runHint = runId
+    ? `<span class="muted research-actions-hint">当前轮次：${escapeHtml((selected?.title || runId).slice(0, 36))}</span>`
+    : `<span class="muted research-actions-hint">请先在研究树中点击一轮搜罗</span>`;
+  actions.innerHTML = `
+    ${runHint}
+    <div class="research-actions-btns">
+      <button type="button" class="btn btn-sm btn-secondary" id="btn-research-note" ${hasTree ? "" : "disabled"} title="在当前选中节点下添加笔记">添加笔记</button>
+      <button type="button" class="btn btn-sm btn-secondary" id="btn-research-fork" ${runId ? "" : "disabled"} title="继承上轮报告与反馈，细化关键词再搜罗">分叉深挖</button>
+      <button type="button" class="btn btn-sm btn-secondary" id="btn-research-insight" ${runId && hasTree ? "" : "disabled"} title="AI 归纳本轮要点（需 DeepSeek）">归纳要点</button>
+      <button type="button" class="btn btn-sm btn-ghost" id="btn-research-suggest" ${runId ? "" : "disabled"} title="生成后续搜罗建议（需 DeepSeek）">建议查询</button>
+    </div>`;
+  document.getElementById("btn-research-note")?.addEventListener("click", () => toggleResearchNoteForm(true));
+  document.getElementById("btn-research-fork")?.addEventListener("click", () => forkSearchFromRun(runId));
+  document.getElementById("btn-research-insight")?.addEventListener("click", () => void generateResearchInsight(runId));
+  document.getElementById("btn-research-suggest")?.addEventListener("click", () => void suggestResearchQueries(runId));
+}
 
 const RUN_STATUS_LABELS = {
   running: "进行中",
@@ -488,9 +571,12 @@ function clearResearchFeedback() {
 
 function setActiveSearchRunId(runId) {
   workspaceSession.activeRunId = runId || null;
-  workspaceSession.currentRunId = runId || workspaceSession.currentRunId;
-  if (runId) sessionStorage.setItem("activeSearchRunId", runId);
-  else sessionStorage.removeItem("activeSearchRunId");
+  if (runId) {
+    setCurrentRunId(runId);
+    sessionStorage.setItem("activeSearchRunId", runId);
+  } else {
+    sessionStorage.removeItem("activeSearchRunId");
+  }
 }
 
 function setResearchTreeId(treeId) {
@@ -548,6 +634,8 @@ function initResearchTreeToolbar() {
   document.getElementById("btn-research-clear")?.addEventListener("click", () => {
     setResearchTreeId(null);
     workspaceSession.parentNodeId = null;
+    workspaceSession.selectedNodeId = null;
+    renderResearchSuggestChips([]);
     void syncResearchTreeSelect();
     void refreshResearchTree();
     showToast("已脱离当前研究树", "info");
@@ -829,32 +917,31 @@ async function refreshResearchTree(selectedNodeId) {
     const data = await api("GET", `/api/research/trees/${workspaceSession.treeId}`);
     const tree = data.tree;
     workspaceSession.currentTree = tree;
-    panel.innerHTML = buildResearchTreeHtml(tree, selectedNodeId);
-    const selectedNode = selectedNodeId ? findResearchNode(tree, selectedNodeId) : null;
+    if (!getActiveResearchRunId()) {
+      const latest = pickLatestSearchRunId(tree);
+      if (latest) setCurrentRunId(latest);
+    }
+    panel.innerHTML = buildResearchTreeHtml(tree, selectedNodeId || workspaceSession.selectedNodeId);
+    const focusId = selectedNodeId || workspaceSession.selectedNodeId;
+    const selectedNode = focusId ? findResearchNode(tree, focusId) : null;
     showResearchNodeDetail(selectedNode);
     panel.querySelectorAll(".research-tree-node").forEach((el) => {
       el.addEventListener("click", () => {
         const runId = el.dataset.runId;
         const nodeId = el.dataset.nodeId;
+        workspaceSession.selectedNodeId = nodeId;
         workspaceSession.parentNodeId = nodeId;
         const node = findResearchNode(workspaceSession.currentTree, nodeId);
-        refreshResearchTree(nodeId);
+        if (runId) {
+          workspaceSession.selectedRunId = runId;
+          setCurrentRunId(runId);
+        }
+        void refreshResearchTree(nodeId);
         showResearchNodeDetail(node);
         if (runId) void loadRunIntoWorkspace(runId);
       });
     });
-    if (actions) {
-      const runId = workspaceSession.currentRunId || "";
-      actions.innerHTML = `
-        <button type="button" class="btn btn-sm btn-secondary" id="btn-research-note" title="在当前选中节点下添加笔记">添加笔记</button>
-        <button type="button" class="btn btn-sm btn-secondary" id="btn-research-fork" ${runId ? "" : "disabled"} title="继承上轮报告与反馈，细化关键词再搜罗">分叉深挖</button>
-        <button type="button" class="btn btn-sm btn-secondary" id="btn-research-insight" ${runId && workspaceSession.treeId ? "" : "disabled"} title="AI 归纳本轮要点">归纳要点</button>
-        <button type="button" class="btn btn-sm btn-ghost" id="btn-research-suggest" ${runId ? "" : "disabled"} title="生成后续搜罗建议">建议查询</button>`;
-      document.getElementById("btn-research-note")?.addEventListener("click", () => toggleResearchNoteForm(true));
-      document.getElementById("btn-research-fork")?.addEventListener("click", () => forkSearchFromRun(runId));
-      document.getElementById("btn-research-insight")?.addEventListener("click", () => generateResearchInsight(runId));
-      document.getElementById("btn-research-suggest")?.addEventListener("click", () => suggestResearchQueries(runId));
-    }
+    renderResearchActions();
     const markmapEl = document.getElementById("research-markmap");
     if (markmapEl && !markmapEl.classList.contains("hidden")) {
       void renderResearchMarkmap(tree);
@@ -869,7 +956,11 @@ async function renderResearchMarkmap(tree) {
   if (!el) return;
   try {
     const md = await api("GET", `/api/research/trees/${tree.id}/markmap`);
-    el.innerHTML = `<pre class="markmap">${escapeHtml(md.markdown || "")}</pre>`;
+    el.textContent = "";
+    const pre = document.createElement("pre");
+    pre.className = "markmap";
+    pre.textContent = md.markdown || "";
+    el.appendChild(pre);
     if (window.markmap?.autoLoader) {
       window.markmap.autoLoader.renderAll();
     }
@@ -904,7 +995,7 @@ function initResearchViewToggle() {
 }
 
 async function loadRunIntoWorkspace(runId) {
-  workspaceSession.currentRunId = runId;
+  setCurrentRunId(runId);
   const resultsEl = document.getElementById("search-results");
   const reportEl = document.getElementById("report-panel");
   if (!resultsEl) return;
@@ -919,6 +1010,7 @@ async function loadRunIntoWorkspace(runId) {
       if (data.status === "interrupted") {
         prependResultsBanner(resultsEl, "warn", data.error || "任务已中断");
       }
+      renderResearchActions();
     }
   } catch (err) {
     resultsEl.innerHTML = `<div class="alert alert-error">${escapeHtml(err.message)}</div>`;
@@ -993,7 +1085,10 @@ function forkSearchFromRun(runId) {
 }
 
 async function generateResearchInsight(runId) {
-  if (!workspaceSession.treeId || !runId) return;
+  if (!workspaceSession.treeId || !runId) {
+    showResearchFeedback("请先选中研究树中的一轮搜罗", "warn");
+    return;
+  }
   const btn = document.getElementById("btn-research-insight");
   if (btn) {
     btn.disabled = true;
@@ -1001,19 +1096,60 @@ async function generateResearchInsight(runId) {
   }
   clearResearchFeedback();
   try {
-    await api("POST", "/api/research/insight", {
+    const result = await api("POST", "/api/research/insight", {
       tree_id: workspaceSession.treeId,
       run_id: runId,
-      parent_node_id: workspaceSession.parentNodeId,
+      parent_node_id: insightParentNodeId(runId),
     });
-    await refreshResearchTree(workspaceSession.parentNodeId);
+    const newId = result.node?.id;
+    showToast("研究要点已生成", "success");
+    switchWorkspacePanel("research");
+    await refreshResearchTree(newId || workspaceSession.selectedNodeId);
+    if (newId) {
+      workspaceSession.selectedNodeId = newId;
+      workspaceSession.parentNodeId = newId;
+      showResearchNodeDetail(findResearchNode(workspaceSession.currentTree, newId));
+    }
   } catch (err) {
-    showResearchFeedback(err.message);
-    await refreshResearchTree();
+    showResearchFeedback(err.message || "归纳失败，请确认已配置 DeepSeek API Key");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "归纳要点";
+    }
+    renderResearchActions();
   }
 }
 
+function renderResearchSuggestChips(queries) {
+  const wrap = document.getElementById("research-suggested-queries");
+  if (!wrap) return;
+  if (!queries.length) {
+    wrap.classList.add("hidden");
+    wrap.innerHTML = "";
+    return;
+  }
+  wrap.classList.remove("hidden");
+  wrap.innerHTML = `<span class="toolbar-label">建议深挖（点击填入搜索框）</span>${queries
+    .map((q) => `<button type="button" class="chip chip-btn" data-suggest-query="${escapeHtml(q)}">${escapeHtml(q)}</button>`)
+    .join("")}`;
+  wrap.querySelectorAll("[data-suggest-query]").forEach((chipBtn) => {
+    chipBtn.addEventListener("click", () => {
+      const input = document.getElementById("search-query");
+      if (input) {
+        input.value = chipBtn.dataset.suggestQuery;
+        input.focus();
+      }
+      document.getElementById("search-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+}
+
 async function suggestResearchQueries(runId) {
+  if (!runId) {
+    showResearchFeedback("请先选中研究树中的一轮搜罗", "warn");
+    return;
+  }
   const btn = document.getElementById("btn-research-suggest");
   if (btn) {
     btn.disabled = true;
@@ -1025,29 +1161,26 @@ async function suggestResearchQueries(runId) {
       run_id: runId,
       tree_id: workspaceSession.treeId,
     });
-    const wrap = document.getElementById("suggested-queries");
-    if (!wrap || !(data.queries || []).length) {
-      showResearchFeedback("暂无建议，请稍后再试或手动输入关键词", "warn");
+    const queries = data.queries || [];
+    if (!data.ok && data.error) {
+      showResearchFeedback(data.error, "warn");
       return;
     }
-    wrap.innerHTML = `<span class="toolbar-label">建议深挖（点击填入）</span>${data.queries
-      .map((q) => `<button type="button" class="chip chip-btn" data-suggest-query="${escapeHtml(q)}">${escapeHtml(q)}</button>`)
-      .join("")}`;
-    wrap.querySelectorAll("[data-suggest-query]").forEach((chipBtn) => {
-      chipBtn.addEventListener("click", () => {
-        const input = document.getElementById("search-query");
-        if (input) {
-          input.value = chipBtn.dataset.suggestQuery;
-          input.focus();
-          input.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
-      });
-    });
-    document.getElementById("search-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!queries.length) {
+      showResearchFeedback("暂无建议，请勾选「生成情报报告」完成搜罗后再试", "warn");
+      return;
+    }
+    renderResearchSuggestChips(queries);
+    switchWorkspacePanel("research");
+    showToast(`已生成 ${queries.length} 条建议查询`, "success");
   } catch (err) {
-    showResearchFeedback(err.message);
+    showResearchFeedback(err.message || "建议查询失败，请确认已配置 DeepSeek API Key");
   } finally {
-    await refreshResearchTree();
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "建议查询";
+    }
+    renderResearchActions();
   }
 }
 
@@ -1486,8 +1619,16 @@ function initWorkspace(profiles, sources) {
   initResearchViewToggle();
   initResearchTreeToolbar();
   initWorkspacePanelTabs();
+  initWorkspaceSplitToggle();
   void syncResearchTreeSelect();
-  if (workspaceSession.treeId) void refreshResearchTree();
+  if (workspaceSession.treeId) {
+    void refreshResearchTree().then(() => {
+      const runId = getActiveResearchRunId();
+      if (runId) void loadRunIntoWorkspace(runId);
+    });
+  } else if (getActiveResearchRunId()) {
+    void loadRunIntoWorkspace(getActiveResearchRunId());
+  }
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1660,7 +1801,7 @@ async function runSearch() {
     const run_id = start.run_id;
     if (start.tree_id) setResearchTreeId(start.tree_id);
     setActiveSearchRunId(run_id);
-    workspaceSession.currentRunId = run_id;
+    workspaceSession.selectedNodeId = null;
     progressUi.setRunId(run_id);
     runLink.href = `/runs/${run_id}`;
     runLink.classList.remove("hidden");
@@ -1825,6 +1966,7 @@ function renderReportPanel(result, reportEl, askSection, runId) {
 }
 
 async function renderSearchResults(result, resultsEl, reportEl, runId) {
+  if (runId) setCurrentRunId(runId);
   if (result.source_errors?.length) showSourceErrors(result.source_errors, resultsEl);
   const metaHtml = renderSearchMetaBanner(result);
   const items = result.items || [];
@@ -1841,8 +1983,9 @@ async function renderSearchResults(result, resultsEl, reportEl, runId) {
   if (!items.length) {
     resultsEl.innerHTML = `${metaHtml}<div class='empty-state'>未找到结果，可尝试换关键词、增加来源或检查 Cookie 设置</div>`;
     const hasReport = renderReportPanel(result, reportEl, askSection, runId);
-    if (hasReport && window.matchMedia("(max-width: 960px)").matches) {
-      switchWorkspacePanel("report");
+    if (hasReport) {
+      const splitOn = document.getElementById("workspace-split-view")?.checked;
+      if (!splitOn) switchWorkspacePanel("report");
     }
     return;
   }
@@ -1868,6 +2011,11 @@ async function renderSearchResults(result, resultsEl, reportEl, runId) {
   });
 
   renderReportPanel(result, reportEl, askSection, runId);
+  const hasReport = !!(result.report || result.digest);
+  if (hasReport && document.getElementById("opt-digest")?.checked) {
+    const splitOn = document.getElementById("workspace-split-view")?.checked;
+    if (!splitOn) switchWorkspacePanel("report");
+  }
 }
 
 function renderSearchMetaBanner(result) {

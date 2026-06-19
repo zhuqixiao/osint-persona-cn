@@ -1,6 +1,6 @@
 importScripts("lib/config.js", "lib/platforms.js", "lib/queue.js", "lib/sync.js", "lib/aicu.js", "lib/cookies.js");
 
-const EXT_VERSION = "0.3.0";
+const EXT_VERSION = "0.3.1";
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({

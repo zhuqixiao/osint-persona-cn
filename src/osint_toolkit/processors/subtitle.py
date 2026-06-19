@@ -29,13 +29,33 @@ def parse_subtitle_json(body: str) -> str:
     """解析 B 站字幕 JSON 为纯文本。"""
     import json
 
+    text = (body or "").strip()
+    if not text:
+        return ""
     try:
-        data = json.loads(body)
+        data = json.loads(text)
     except json.JSONDecodeError:
-        return body
+        return text if len(text) < 50000 else ""
+
     lines: list[str] = []
-    for item in data.get("body", []):
-        content = item.get("content", "")
-        if content:
-            lines.append(content)
+
+    def _append_from_items(items: list) -> None:
+        for item in items:
+            if isinstance(item, dict):
+                content = str(item.get("content") or item.get("text") or "").strip()
+                if content:
+                    lines.append(content)
+            elif isinstance(item, str) and item.strip():
+                lines.append(item.strip())
+
+    if isinstance(data, dict):
+        body_items = data.get("body")
+        if isinstance(body_items, list):
+            _append_from_items(body_items)
+        subs = data.get("subtitles")
+        if isinstance(subs, list):
+            _append_from_items(subs)
+    elif isinstance(data, list):
+        _append_from_items(data)
+
     return "\n".join(lines)

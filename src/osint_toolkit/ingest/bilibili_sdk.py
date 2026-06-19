@@ -578,6 +578,22 @@ def parse_video_ref(url: str) -> tuple[str | None, int | None]:
     return bvid, aid
 
 
+def parse_video_page_index(url: str) -> int:
+    """B 站分 P 参数 ?p= 为 1-based，返回 0-based page index。"""
+    from urllib.parse import parse_qs, urlparse
+
+    qs = parse_qs(urlparse(url).query)
+    for key in ("p", "page"):
+        raw = (qs.get(key) or [None])[0]
+        if raw is None:
+            continue
+        try:
+            return max(0, int(raw) - 1)
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
 async def _video_instance(url: str):
     from bilibili_api import video
 
@@ -718,12 +734,8 @@ async def fetch_subtitle_for_aid_cid(
 
     http = client or HttpClient()
     params = {"aid": aid, "cid": cid}
-    attempts: list[tuple[str, Any]] = [
-        ("wbi_player", None),
-        ("view_api", None),
-    ]
-
-    for source, _ in attempts:
+    last_reason = "no_tracks"
+    for source in ("wbi_player", "player_v2"):
         try:
             if source == "wbi_player":
                 payload = await wbi_get(http, "https://api.bilibili.com/x/player/wbi/v2", params)
@@ -734,46 +746,59 @@ async def fetch_subtitle_for_aid_cid(
             tracks = _subtitle_tracks_from_payload(data.get("subtitle") or {})
             track = pick_subtitle_track(tracks)
             if not track:
+                last_reason = "no_tracks"
                 continue
             sub_url = _track_subtitle_url(track)
             if not sub_url:
+                last_reason = "no_subtitle_url"
                 continue
-            text = await _download_subtitle_text(sub_url)
+            text = (await _download_subtitle_text(sub_url)).strip()
+            if not text:
+                last_reason = "empty_subtitle_file"
+                continue
             return {"text": text, "track": track, "source": source, "aid": aid, "cid": cid}
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            last_reason = f"{source}_error:{exc.__class__.__name__}"
             continue
 
-    return {"text": "", "track": None, "source": "view_api", "aid": aid, "cid": cid}
+    return {
+        "text": "",
+        "track": None,
+        "source": "player_api",
+        "aid": aid,
+        "cid": cid,
+        "reason": last_reason,
+    }
 
 
 async def fetch_subtitle_for_url(url: str) -> dict[str, Any]:
-    """拉取视频字幕，返回 text / track / source。"""
+    """拉取视频字幕，返回 text / track / source。SDK 无轨时回退 WBI player。"""
+    from osint_toolkit.http.client import HttpClient
     from osint_toolkit.processors.subtitle import pick_subtitle_track
+
+    page_index = parse_video_page_index(url)
 
     if sdk_installed() and sdk_enabled("subtitle"):
         try:
             v = await _video_instance(url)
-            cid = await _resolve_cid(v)
+            cid = await _resolve_cid(v, page_index)
             payload = await v.get_subtitle(cid=cid)
             tracks = _subtitle_tracks_from_payload(payload or {})
             track = pick_subtitle_track(tracks)
-            if not track:
-                return {"text": "", "track": None, "source": "sdk"}
-            sub_url = track.get("subtitle_url") or track.get("subtitle_url_v2") or track.get("url") or ""
-            if not sub_url:
-                return {"text": "", "track": track, "source": "sdk"}
-            text = await _download_subtitle_text(sub_url)
-            return {"text": text, "track": track, "source": "sdk"}
+            if track:
+                sub_url = _track_subtitle_url(track)
+                if sub_url:
+                    text = (await _download_subtitle_text(sub_url)).strip()
+                    if text:
+                        return {"text": text, "track": track, "source": "sdk", "cid": cid}
         except Exception as exc:  # noqa: BLE001
             logger.warning("bilibili sdk subtitle failed: %s", exc)
 
-    from osint_toolkit.http.client import HttpClient
-
     client = HttpClient()
-    aid, cid = await resolve_video_aid_cid(url, client=client)
+    aid, cid = await resolve_video_aid_cid(url, page_index=page_index, client=client)
     if aid and cid:
         return await fetch_subtitle_for_aid_cid(aid, cid, client=client)
-    return {"text": "", "track": None, "source": "view_api"}
+    return {"text": "", "track": None, "source": "view_api", "reason": "aid_cid_unresolved"}
 
 
 async def fetch_danmaku_lines_legacy(
@@ -858,7 +883,12 @@ async def enrich_video_item(item) -> None:
         if text not in (item.content or ""):
             item.content = (str(item.content or "").strip() + f"\n\n[字幕:{item.layers['subtitle']['kind']}]\n{text}").strip()[:16000]
     else:
-        item.layers["subtitle"] = {"text": "", "kind": "none", "source": subtitle.get("source")}
+        item.layers["subtitle"] = {
+            "text": "",
+            "kind": "none",
+            "source": subtitle.get("source"),
+            "reason": subtitle.get("reason", "no_tracks"),
+        }
 
     lines = await fetch_danmaku_lines(item.url)
     if lines:
