@@ -8,7 +8,7 @@ from typing import Any
 from osint_toolkit.http.client import HttpClient
 from osint_toolkit.ingest import account_sync_state as sync_state
 from osint_toolkit.ingest.bilibili_wbi import wbi_get
-from osint_toolkit.storage.knowledge import log_event, log_event_deduped
+from osint_toolkit.storage.knowledge import log_event_deduped
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +50,9 @@ def _bilibili_section() -> dict[str, Any]:
 
 
 def _persist_bilibili(**kwargs: Any) -> None:
-    state = sync_state.load_account_sync_state()
-    sync_state.update_bilibili_section(state, **kwargs)
-    sync_state.save_account_sync_state(state)
+    def _update(state: dict[str, Any]) -> None:
+        sync_state.update_bilibili_section(state, **kwargs)
+    sync_state.atomic_update_state(_update)
 
 
 async def _fetch_history_entries(limit: int) -> list[dict[str, Any]]:
@@ -117,7 +117,9 @@ async def ingest_history(limit: int = 500) -> list[dict]:
         return []
     fresh, updated_cursor = sync_state.filter_new_history_entries(fetched, cursor)
     for entry in fresh:
-        log_event("bilibili_watch", entry)
+        url = str(entry.get("url") or "")
+        view_at = str(entry.get("view_at") or 0)
+        log_event_deduped("bilibili_watch", entry, f"bilibili_watch|{url}|{view_at}")
     _persist_bilibili(history=updated_cursor)
     return fresh
 
@@ -148,6 +150,8 @@ async def _fetch_favorite_entries(limit: int) -> list[dict[str, Any]]:
                 continue
             pn = 1
             while len(results) < limit:
+                if pn > 100:
+                    break
                 list_url = (
                     "https://api.bilibili.com/x/v3/fav/resource/list"
                     f"?media_id={media_id}&pn={pn}&ps=20&order=mtime"
@@ -289,7 +293,8 @@ async def ingest_likes(limit: int = 500) -> list[dict]:
         return []
     fresh = sync_state.filter_new_by_bvids(fetched, seen_bvids)
     for entry in fresh:
-        log_event("bilibili_like", entry)
+        bvid = str(entry.get("bvid") or sync_state._bvid_from_url(str(entry.get("url") or "")))
+        log_event_deduped("bilibili_like", entry, f"bilibili_like|{bvid}")
     _persist_bilibili(likes=fetched)
     return fresh
 
@@ -312,6 +317,8 @@ async def _fetch_following_entries(limit: int) -> list[dict[str, Any]]:
     pn = 1
     try:
         while len(results) < limit:
+            if pn > 100:
+                break
             resp = await client.get(
                 "https://api.bilibili.com/x/relation/followings"
                 f"?vmid={mid}&pn={pn}&ps=50&order=desc"

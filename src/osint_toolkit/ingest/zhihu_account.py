@@ -21,7 +21,7 @@ from osint_toolkit.storage.knowledge import log_event, log_event_deduped
 from osint_toolkit.utils.zhihu_urls import content_url_from_target
 
 _ZHIHU_CONTENT_URL = re.compile(
-    r"https?://(?:www\.)?zhihu\.com/(?:question/\d+|question/\d+/answer/\d+|p/\d+)",
+    r"https?://(?:www\.|zhuanlan\.)?zhihu\.com/(?:question/\d+(?:/answer/\d+)?|p/\d+|pin/\d+|zvideo/[\w]+|people/[\w]+|column/[\w]+)",
     re.I,
 )
 
@@ -37,9 +37,9 @@ def _zhihu_section() -> dict[str, Any]:
 
 
 def _persist_zhihu(**kwargs: Any) -> None:
-    state = sync_state.load_account_sync_state()
-    sync_state.update_zhihu_section(state, **kwargs)
-    sync_state.save_account_sync_state(state)
+    def _update(state: dict[str, Any]) -> None:
+        sync_state.update_zhihu_section(state, **kwargs)
+    sync_state.atomic_update_state(_update)
 
 
 
@@ -283,8 +283,12 @@ async def ingest_followees(limit: int = 500) -> list[dict]:
     results: list[dict] = []
     seen: set[str] = set()
     offset = 0
+    _page = 0
     try:
         while len(results) < limit:
+            _page += 1
+            if _page > 50:
+                break
             resp = await client.get(
                 f"https://www.zhihu.com/api/v4/members/{token}/followees"
                 f"?offset={offset}&limit=20",
@@ -337,9 +341,9 @@ async def ingest_browsing(limit: int = 500) -> tuple[list[dict], dict[str, Any]]
     """
     api_fresh, api_meta = await _ingest_browsing_via_api(limit=limit)
     if api_meta.get("source") == "read_history_api" and api_fresh:
-        # API 成功，也补充 Edge 历史中 API 没覆盖的
         edge_fresh = ingest_zhihu_browse_from_edge(limit=limit)
-        combined = api_fresh + [e for e in edge_fresh if e.get("url") not in {f.get("url") for f in api_fresh}]
+        api_urls = {f.get("url") for f in api_fresh}
+        combined = api_fresh + [e for e in edge_fresh if e.get("url") not in api_urls]
         return combined, {**api_meta, "edge_supplement": len(edge_fresh)}
     # API 失败或空，回退 Edge 历史
     fresh = ingest_zhihu_browse_from_edge(limit=limit)
@@ -482,8 +486,12 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
     results: list[dict] = []
     seen: set[str] = set()
     offset = 0
+    _fav_page = 0
     try:
         while len(results) < limit:
+            _fav_page += 1
+            if _fav_page > 50:
+                break
             fav_resp = await client.get(
                 f"https://www.zhihu.com/api/v4/members/{token}/favlists"
                 f"?include=answers&offset={offset}&limit=20",
@@ -498,7 +506,11 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
                 if not cid:
                     continue
                 item_offset = 0
+                _item_page = 0
                 while len(results) < limit:
+                    _item_page += 1
+                    if _item_page > 50:
+                        break
                     items_resp = await client.get(
                         f"https://www.zhihu.com/api/v4/collections/{cid}/items"
                         f"?offset={item_offset}&limit=20"

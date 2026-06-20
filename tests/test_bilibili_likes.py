@@ -1,4 +1,4 @@
-"""Bilibili ingest likes tests."""
+﻿"""Bilibili ingest likes tests."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ async def test_ingest_likes_sdk_first(monkeypatch):
     sdk_rows = [
         {
             "source": "bilibili",
-            "title": "SDK 点赞",
+            "title": "SDK 鐐硅禐",
             "url": "https://www.bilibili.com/video/BV1",
             "event_kind": "like",
         }
@@ -30,7 +30,7 @@ async def test_ingest_likes_sdk_first(monkeypatch):
         "osint_toolkit.ingest.bilibili_sdk.ingest_likes",
         fake_sdk_likes,
     )
-    monkeypatch.setattr(bilibili_account, "log_event", lambda et, entry: logged.append((et, entry)))
+    monkeypatch.setattr(bilibili_account, "log_event_deduped", lambda et, entry, key: logged.append((et, entry)))
     monkeypatch.setattr(bilibili_account, "_bilibili_section", lambda: {})
     monkeypatch.setattr(bilibili_account, "_persist_bilibili", lambda **_k: None)
     monkeypatch.setattr(

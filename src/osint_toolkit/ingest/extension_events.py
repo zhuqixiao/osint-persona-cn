@@ -313,7 +313,7 @@ def _parse_zhihu_post(url: str, body: dict[str, Any]) -> list[tuple[str, dict[st
             "via": "extension_post",
         }
         event_type = "zhihu_vote" if action == "vote" else "zhihu_unvote"
-        out.append((event_type, entry, _dedup_key(event_type, content_url, content_id)))
+        out.append((event_type, entry, _dedup_key(event_type, content_url, f"{content_id}|{vote_type}|{method}")))
         return out
 
     if _ZHIHU_FAV_ITEM_URL.search(url):

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import UTC, datetime
 from typing import Any
 
 _STATE_FILE = "account_sync_state.json"
+_state_lock = threading.Lock()
 
 
 def _state_path():
@@ -38,6 +40,16 @@ def save_account_sync_state(state: dict[str, Any]) -> None:
     payload = json.dumps(state, ensure_ascii=False, indent=2)
     tmp.write_text(payload, encoding="utf-8")
     tmp.replace(path)
+
+
+def atomic_update_state(
+    update_fn: Any,
+) -> None:
+    """Load → update_fn(state) → save, all under _state_lock to prevent lost updates."""
+    with _state_lock:
+        state = load_account_sync_state()
+        update_fn(state)
+        save_account_sync_state(state)
 
 
 def _to_int(value: object) -> int:

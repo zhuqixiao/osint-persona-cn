@@ -163,7 +163,7 @@ async def api_sources_auth_check(sources: str = "") -> dict[str, Any]:
     from osint_toolkit.services.source_preflight import check_sources_auth
 
     ids = [s.strip() for s in sources.split(",") if s.strip() and s.strip() in COLLECTORS]
-    return check_sources_auth(ids)
+    return await asyncio.to_thread(check_sources_auth, ids)
 
 
 @router.post("/search/expand")
@@ -190,7 +190,7 @@ async def api_search(body: SearchRequest) -> dict[str, Any]:
     tree_id = body.tree_id
     parent_node_id = body.parent_node_id
     if body.create_tree and not tree_id:
-        created = create_tree(body.query, query=body.query)
+        created = await asyncio.to_thread(create_tree, body.query, query=body.query)
         tree_id = created["id"]
         parent_node_id = created["nodes"][0]["id"]
 
@@ -301,7 +301,7 @@ async def api_search_progress(run_id: str) -> dict[str, Any]:
     run_id = _validated_run_id(run_id)
     progress = get_progress(run_id)
     if not progress:
-        progress = read_progress_disk(run_id)
+        progress = await asyncio.to_thread(read_progress_disk, run_id)
     if not progress:
         raise HTTPException(404, detail="progress not found")
     return {"run_id": run_id, "progress": progress}
@@ -331,11 +331,11 @@ async def api_search_result(run_id: str) -> dict[str, Any]:
             return {"run_id": run_id, "status": "cancelled", "error": job.get("error") or "已取消"}
         if job["status"] == "error":
             raise HTTPException(500, detail=job["error"])
-        result = job.get("result") or get_job_result(run_id)
+        result = job.get("result") or await asyncio.to_thread(get_job_result, run_id)
         if not result:
             raise HTTPException(404, detail="run not found")
         return {"run_id": run_id, "status": "done", **_serialize_search_result(result)}
-    disk = get_job_result(run_id)
+    disk = await asyncio.to_thread(get_job_result, run_id)
     if disk:
         manifest = disk.get("manifest") or {}
         status = manifest.get("status") or "done"
@@ -349,12 +349,12 @@ async def api_search_result(run_id: str) -> dict[str, Any]:
                 **payload,
             }
         return {"run_id": run_id, "status": "done", **payload}
-    manifest_only = read_manifest(run_id)
+    manifest_only = await asyncio.to_thread(read_manifest, run_id)
     if manifest_only:
         status = manifest_only.get("status") or "unknown"
         if status == "running":
             payload = {"run_id": run_id, "status": "running"}
-            progress = read_progress_disk(run_id)
+            progress = await asyncio.to_thread(read_progress_disk, run_id)
             if progress:
                 payload["progress"] = progress
             return payload
@@ -545,12 +545,14 @@ async def api_ask(body: AskRequest) -> dict[str, Any]:
     if body.tree_id and result.get("answer"):
         parent = body.parent_node_id
         if not parent and body.run_id:
-            for node in load_tree(body.tree_id).get("nodes") or []:
+            tree_data = await asyncio.to_thread(load_tree, body.tree_id)
+            for node in tree_data.get("nodes") or []:
                 if node.get("run_id") == body.run_id:
                     parent = node.get("id")
                     break
         try:
-            add_node(
+            await asyncio.to_thread(
+                add_node,
                 body.tree_id,
                 parent_id=parent,
                 kind="ask",
@@ -565,7 +567,8 @@ async def api_ask(body: AskRequest) -> dict[str, Any]:
 
 @router.post("/feedback")
 async def api_feedback(body: FeedbackRequest) -> dict[str, Any]:
-    return feedback.submit_feedback(
+    return await asyncio.to_thread(
+        feedback.submit_feedback,
         target_id=body.target_id,
         rating=body.rating,
         reason=body.reason,
@@ -579,7 +582,7 @@ async def api_feedback(body: FeedbackRequest) -> dict[str, Any]:
 @router.get("/feedback/recent")
 async def api_feedback_recent(target_ids: str = "") -> dict[str, Any]:
     ids = [part.strip() for part in target_ids.split(",") if part.strip()]
-    return {"feedback": feedback.get_feedback_map(ids or None)}
+    return {"feedback": await asyncio.to_thread(feedback.get_feedback_map, ids or None)}
 
 
 @router.get("/digest/daily")
@@ -592,13 +595,13 @@ async def api_digest_daily(ai: bool = False, no_ai: bool = False, hot_list: bool
 
 @router.get("/digest/history")
 async def api_digest_history(limit: int = 30) -> dict[str, Any]:
-    return {"digests": digest.list_daily_digests(limit=limit)}
+    return {"digests": await asyncio.to_thread(digest.list_daily_digests, limit=limit)}
 
 
 @router.get("/digest/history/{date}")
 async def api_digest_history_one(date: str) -> dict[str, Any]:
     try:
-        return digest.load_daily_digest(date)
+        return await asyncio.to_thread(digest.load_daily_digest, date)
     except FileNotFoundError as exc:
         raise HTTPException(404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -607,7 +610,7 @@ async def api_digest_history_one(date: str) -> dict[str, Any]:
 
 @router.get("/digest/reports")
 async def api_digest_reports(limit: int = 50) -> dict[str, Any]:
-    return {"reports": digest.list_reports(limit=limit)}
+    return {"reports": await asyncio.to_thread(digest.list_reports, limit=limit)}
 
 
 @router.post("/ingest/browser")
@@ -664,12 +667,12 @@ async def api_setup_operations() -> dict[str, Any]:
 
 @router.get("/setup/sync-config")
 async def api_setup_sync_config() -> dict[str, Any]:
-    return load_sync_config()
+    return await asyncio.to_thread(load_sync_config)
 
 
 @router.post("/setup/dismiss")
 async def api_setup_dismiss() -> dict[str, Any]:
-    setup.dismiss_setup()
+    await asyncio.to_thread(setup.dismiss_setup)
     return {"ok": True}
 
 
@@ -800,7 +803,7 @@ async def api_ingest_full_sync_cancel(job_id: str) -> dict[str, Any]:
 @router.get("/ingest/likes")
 @router.get("/ingest/recognition")
 async def api_ingest_likes() -> dict[str, Any]:
-    return ingest.get_likes()
+    return await asyncio.to_thread(ingest.get_likes)
 
 
 @router.get("/health/intl-reachability")
@@ -813,13 +816,17 @@ async def api_intl_reachability(force: bool = False) -> dict[str, Any]:
 @router.post("/extension/events")
 async def api_extension_events(body: ExtensionEventsRequest) -> dict[str, Any]:
     if body.version:
-        extension.ping_extension(version=body.version)
+        await asyncio.to_thread(
+            extension.ping_extension,
+            version=body.version,
+        )
     return await extension.ingest_extension_batch(body.events)
 
 
 @router.post("/extension/ping")
 async def api_extension_ping(body: ExtensionPingRequest) -> dict[str, Any]:
-    return extension.ping_extension(
+    return await asyncio.to_thread(
+        extension.ping_extension,
         version=body.version,
         enabled=body.enabled,
         pending_queue=body.pending_queue,
@@ -876,17 +883,17 @@ async def api_persona_status(auto_rebuild: bool = False) -> dict[str, Any]:
 
 @router.post("/persona/dismiss-notice")
 async def api_persona_dismiss_notice() -> dict[str, Any]:
-    return persona.dismiss_persona_notice()
+    return await asyncio.to_thread(persona.dismiss_persona_notice)
 
 
 @router.get("/persona/suggested-queries")
 async def api_persona_suggested_queries(no_ai: bool = False) -> dict[str, Any]:
-    return persona.get_suggested_queries(no_ai=no_ai)
+    return await asyncio.to_thread(persona.get_suggested_queries, no_ai=no_ai)
 
 
 @router.post("/persona/rollback")
 async def api_persona_rollback(body: PersonaRollbackRequest) -> dict[str, Any]:
-    return persona.rollback_persona(body.version)
+    return await asyncio.to_thread(persona.rollback_persona, body.version)
 
 
 @router.get("/runs")
@@ -962,7 +969,7 @@ async def api_run_detail(run_id: str, step: str | None = None) -> Any:
 async def api_run_artifact(run_id: str, name: str) -> PlainTextResponse:
     run_id = _validated_run_id(run_id)
     try:
-        content, media_type = runs.get_run_artifact(run_id, name)
+        content, media_type = await asyncio.to_thread(runs.get_run_artifact, run_id, name)
     except FileNotFoundError as exc:
         raise HTTPException(404, detail=str(exc)) from exc
     return PlainTextResponse(content, media_type=media_type)
@@ -1009,25 +1016,25 @@ async def api_directives_put(body: DirectivesUpdate) -> dict[str, Any]:
 
 @router.get("/ai/prompts")
 async def api_prompts_list() -> dict[str, Any]:
-    return {"prompts": ai_config.list_prompts()}
+    return {"prompts": await asyncio.to_thread(ai_config.list_prompts)}
 
 
 @router.get("/ai/prompts/{name}")
 async def api_prompt_get(name: str) -> dict[str, str]:
     name = _validated_prompt_name(name)
-    return ai_config.get_prompt(name)
+    return await asyncio.to_thread(ai_config.get_prompt, name)
 
 
 @router.put("/ai/prompts/{name}")
 async def api_prompt_put(name: str, body: PromptUpdate) -> dict[str, str]:
     name = _validated_prompt_name(name)
-    return ai_config.update_prompt(name, body.text)
+    return await asyncio.to_thread(ai_config.update_prompt, name, body.text)
 
 
 @router.post("/ai/prompts/{name}/reset")
 async def api_prompt_reset(name: str) -> dict[str, Any]:
     name = _validated_prompt_name(name)
-    return ai_config.reset_prompt(name)
+    return await asyncio.to_thread(ai_config.reset_prompt, name)
 
 
 @router.get("/auth/status")
@@ -1039,7 +1046,7 @@ async def api_auth_status(target: str = "all", live_probe: bool = False) -> dict
 
 @router.get("/config/secrets")
 async def api_config_secrets_list() -> dict[str, Any]:
-    return secrets.list_api_secrets()
+    return await asyncio.to_thread(secrets.list_api_secrets)
 
 
 @router.post("/config/secrets/{secret_id}")
@@ -1052,14 +1059,14 @@ async def api_config_secrets_save(secret_id: str, body: SecretSaveRequest) -> di
 
 @router.post("/config/secrets/{secret_id}/test")
 async def api_config_secrets_test(secret_id: str) -> dict[str, Any]:
-    return secrets.test_api_secret(secret_id)
+    return await asyncio.to_thread(secrets.test_api_secret, secret_id)
 
 
 @router.get("/config/tunables")
 async def api_config_tunables_list() -> dict[str, Any]:
     from osint_toolkit.services import tunable_config
 
-    return tunable_config.list_tunable_groups()
+    return await asyncio.to_thread(tunable_config.list_tunable_groups)
 
 
 @router.patch("/config/tunables")
@@ -1067,7 +1074,7 @@ async def api_config_tunables_patch(body: TunablePatchRequest) -> dict[str, Any]
     from osint_toolkit.services import tunable_config
 
     try:
-        result = tunable_config.patch_tunable_values(body.values)
+        result = await asyncio.to_thread(tunable_config.patch_tunable_values, body.values)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if "search.max_concurrent_searches" in (body.values or {}):
@@ -1113,20 +1120,20 @@ async def api_auth_paths() -> dict[str, Any]:
 
 @router.post("/research/trees")
 async def api_research_create(body: ResearchTreeCreate) -> dict[str, Any]:
-    tree = create_tree(body.title, query=body.query)
+    tree = await asyncio.to_thread(create_tree, body.title, query=body.query)
     return {"tree": tree}
 
 
 @router.get("/research/trees")
 async def api_research_list(limit: int = 30) -> dict[str, Any]:
-    return {"trees": list_trees(limit=limit)}
+    return {"trees": await asyncio.to_thread(list_trees, limit=limit)}
 
 
 @router.get("/research/trees/{tree_id}")
 async def api_research_get(tree_id: str) -> dict[str, Any]:
     tree_id = _validated_tree_id(tree_id)
     try:
-        return {"tree": load_tree(tree_id)}
+        return {"tree": await asyncio.to_thread(load_tree, tree_id)}
     except FileNotFoundError:
         raise HTTPException(404, detail="tree not found") from None
 
@@ -1135,7 +1142,7 @@ async def api_research_get(tree_id: str) -> dict[str, Any]:
 async def api_research_markmap(tree_id: str) -> dict[str, Any]:
     tree_id = _validated_tree_id(tree_id)
     try:
-        tree = load_tree(tree_id)
+        tree = await asyncio.to_thread(load_tree, tree_id)
     except FileNotFoundError:
         raise HTTPException(404, detail="tree not found") from None
     return {"markdown": tree_to_markmap(tree)}
@@ -1145,7 +1152,8 @@ async def api_research_markmap(tree_id: str) -> dict[str, Any]:
 async def api_research_add_node(tree_id: str, body: ResearchNodeCreate) -> dict[str, Any]:
     tree_id = _validated_tree_id(tree_id)
     try:
-        node = add_node(
+        node = await asyncio.to_thread(
+            add_node,
             tree_id,
             parent_id=body.parent_id,
             kind=body.kind,
@@ -1165,7 +1173,8 @@ async def api_research_add_node(tree_id: str, body: ResearchNodeCreate) -> dict[
 async def api_research_patch_node(tree_id: str, node_id: str, body: ResearchNodePatch) -> dict[str, Any]:
     tree_id = _validated_tree_id(tree_id)
     try:
-        node = patch_node(
+        node = await asyncio.to_thread(
+            patch_node,
             tree_id,
             node_id,
             title=body.title,
@@ -1204,7 +1213,10 @@ async def api_research_insight(body: ResearchInsightRequest) -> dict[str, Any]:
 @router.get("/watches")
 async def api_watches_list() -> dict[str, Any]:
     watches = await asyncio.to_thread(watch_service.load_watches)
-    return {"watches": [watch_service.watch_status(w) for w in watches]}
+    statuses = await asyncio.to_thread(
+        lambda: [watch_service.watch_status(w) for w in watches]
+    )
+    return {"watches": statuses}
 
 
 @router.post("/watches/{watch_id}/run")

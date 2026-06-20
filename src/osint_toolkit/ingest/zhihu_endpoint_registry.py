@@ -113,8 +113,12 @@ async def paginate_member_api(
         offset = 0
         collected: list[dict[str, Any]] = []
         seen: set[str] = set()
+        _page = 0
         try:
             while len(collected) < limit:
+                _page += 1
+                if _page > 50:
+                    break
                 url = _format_path(spec, token, offset, extra_query=extra_query)
                 referer = _format_referer(spec, token)
                 resp = await client.get(url, headers={"Referer": referer})
