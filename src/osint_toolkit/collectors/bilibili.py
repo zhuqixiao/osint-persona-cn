@@ -129,14 +129,16 @@ class BilibiliCollector(BaseCollector):
         kind = "legacy"
         if isinstance(track, dict):
             kind = bilibili_sdk._track_label(track)
+        title = str(getattr(item, "title", "") or "")
+        wrong_track = bilibili_sdk._subtitle_likely_wrong_track(text, title)
         item.layers["subtitle"] = {
             "text": text,
-            "kind": kind,
+            "kind": f"{kind}(wrong)" if wrong_track else kind,
             "source": subtitle_result.get("source"),
             "aid": subtitle_result.get("aid"),
             "cid": subtitle_result.get("cid"),
         }
-        if text not in (item.content or ""):
+        if not wrong_track and text not in (item.content or ""):
             item.content = (
                 str(item.content or "").strip() + f"\n\n[字幕:{kind}]\n{text}"
             ).strip()[:16000]

@@ -869,6 +869,27 @@ def _track_label(track: dict | None) -> str:
     return "cc"
 
 
+def _subtitle_likely_wrong_track(subtitle_text: str, video_title: str) -> bool:
+    """检测字幕内容是否明显不匹配视频标题（拉到了错误视频的字幕轨）。"""
+    if not subtitle_text or len(subtitle_text) < 200:
+        return False
+    if not video_title:
+        return False
+    keywords = [w for w in video_title.split() if len(w) >= 2]
+    if not keywords:
+        return False
+    hits = sum(1 for kw in keywords if kw in subtitle_text)
+    if hits == 0 and len(subtitle_text) > 500:
+        logger.warning("bilibili subtitle appears to be wrong track: title keywords not found in subtitle text")
+        return True
+    if len(subtitle_text) > 800:
+        hit_rate = hits / len(keywords)
+        if hit_rate < 0.15 and hits <= 1:
+            logger.warning("bilibili subtitle may be wrong track: low keyword density (%.2f)", hit_rate)
+            return True
+    return False
+
+
 async def enrich_video_item(item) -> None:
     """为 B 站视频 IntelItem 填充字幕/弹幕 layers。"""
     from osint_toolkit.analyzers.danmaku import aggregate_danmaku, summarize_danmaku
@@ -879,15 +900,18 @@ async def enrich_video_item(item) -> None:
     subtitle = await fetch_subtitle_for_url(item.url)
     text = str(subtitle.get("text") or "").strip()
     track = subtitle.get("track")
+    title = str(getattr(item, "title", "") or "")
     if text:
+        label = _track_label(track if isinstance(track, dict) else None)
+        wrong_track = _subtitle_likely_wrong_track(text, title)
         item.layers["subtitle"] = {
             "text": text[:12000],
-            "kind": _track_label(track if isinstance(track, dict) else None),
+            "kind": f"{label}(wrong)" if wrong_track else label,
             "lan_doc": (track or {}).get("lan_doc") if isinstance(track, dict) else "",
             "source": subtitle.get("source"),
         }
-        if text not in (item.content or ""):
-            item.content = (str(item.content or "").strip() + f"\n\n[字幕:{item.layers['subtitle']['kind']}]\n{text}").strip()[:16000]
+        if not wrong_track and text not in (item.content or ""):
+            item.content = (str(item.content or "").strip() + f"\n\n[字幕:{label}]\n{text}").strip()[:16000]
     else:
         item.layers["subtitle"] = {
             "text": "",
