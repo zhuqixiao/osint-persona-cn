@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
 
 from osint_toolkit.ai.alias_discover import discover_aliases, heuristic_aliases, probe_network

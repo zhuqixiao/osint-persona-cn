@@ -115,18 +115,23 @@ def build_persona_draft(
     old_brief = load_persona_brief()
     old_hints = load_recent_interest_hints(limit=8)
     conn = connect()
-    rows = conn.execute(
-        "SELECT event_type, data_json FROM events ORDER BY id DESC LIMIT ?",
-        (event_limit,),
-    ).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute(
+            "SELECT event_type, data_json FROM events ORDER BY id DESC LIMIT ?",
+            (event_limit,),
+        ).fetchall()
+    finally:
+        conn.close()
     all_feedback = FeedbackStore().list_recent(feedback_limit)
     feedback = all_feedback
     sim_feedback = [f for f in all_feedback if f.get("target_type") == "simulation"]
     sources = Counter()
     event_types = Counter()
     for row in rows:
-        data = json.loads(row["data_json"])
+        try:
+            data = json.loads(row["data_json"])
+        except (json.JSONDecodeError, TypeError):
+            continue
         sources[data.get("source", "unknown")] += 1
         event_types[row["event_type"]] += 1
     ranked_sample = load_ranked_behavior_samples(fetch_limit=event_limit, sample_limit=40)

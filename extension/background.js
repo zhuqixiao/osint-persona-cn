@@ -48,8 +48,11 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   });
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+const QUEUE_KINDS = new Set(["api_capture", "page_visit", "page_session", "save_url", "raw_event"]);
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.kind) return;
+  if (sender && sender.id && sender.id !== chrome.runtime.id) return;
   if (message.kind === "get_status") {
     chrome.storage.local.get(
       ["enabled", "passiveCollect", "backgroundSync", "apiBase", "stats", "lastFlushError", "lastSyncResult"],
@@ -123,7 +126,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       .catch((e) => sendResponse({ error: String(e.message || e) }));
     return true;
   }
-  enqueueIfEnabled(message);
+  if (QUEUE_KINDS.has(message.kind)) {
+    enqueueIfEnabled(message);
+  }
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {

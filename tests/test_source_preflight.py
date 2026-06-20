@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from osint_toolkit.services.source_preflight import apply_auth_gates, check_source_auth
 
 

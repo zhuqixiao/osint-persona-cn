@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -277,6 +276,13 @@ def test_parse_video_uses_tags_when_no_desc():
     )
     assert item is not None
     assert item.content == "标签: Qwen 国模 大模型"
+
+
+def test_parse_video_returns_none_when_no_bvid_or_aid():
+    """bvid 与 aid 双空时不应产出 avNone URL，应返回 None 跳过该条目。"""
+    col = BilibiliCollector()
+    assert col._parse_video({"title": "无 ID 条目"}) is None
+    assert col._parse_video({"bvid": "", "aid": None, "title": "x"}) is None
 
 
 @pytest.mark.asyncio

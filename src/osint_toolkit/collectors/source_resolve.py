@@ -6,7 +6,11 @@ import re
 from typing import Any
 
 from osint_toolkit.collectors.registry import COLLECTORS
-from osint_toolkit.collectors.source_catalog import get_source_labels, comprehensive_native_source_ids, merge_source_priority
+from osint_toolkit.collectors.source_catalog import (
+    comprehensive_native_source_ids,
+    get_source_labels,
+    merge_source_priority,
+)
 from osint_toolkit.collectors.source_routing import (
     _music_source_ids,
     compute_source_scores,

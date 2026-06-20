@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import yaml
 
-from pathlib import Path
-
 from osint_toolkit.auth.paths import get_data_dir
-from osint_toolkit.utils.config import _deep_merge, _expand_env
+from osint_toolkit.utils.config import _deep_merge
 
 
 @dataclass(frozen=True)

@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from osint_toolkit.ai.suggest_queries import suggest_queries
+from osint_toolkit.persona.auto_rebuild import (
+    dismiss_auto_rebuild_notice,
+    get_auto_rebuild_mode,
+    get_auto_rebuild_notice,
+)
 from osint_toolkit.persona.builder import build_persona_draft
-from osint_toolkit.persona.auto_rebuild import dismiss_auto_rebuild_notice, get_auto_rebuild_mode, get_auto_rebuild_notice
 from osint_toolkit.persona.context import is_persona_stale, load_persona_context, maybe_load_persona_context
 from osint_toolkit.persona.store import (
     list_version_entries,

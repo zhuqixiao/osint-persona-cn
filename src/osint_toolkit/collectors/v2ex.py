@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from urllib.parse import quote
 
@@ -10,6 +11,8 @@ from bs4 import BeautifulSoup
 from osint_toolkit.collectors.base import BaseCollector
 from osint_toolkit.http.client import HttpClient
 from osint_toolkit.models.intel_item import IntelItem
+
+logger = logging.getLogger(__name__)
 
 
 class V2exCollector(BaseCollector):
@@ -105,7 +108,8 @@ class V2exCollector(BaseCollector):
                     }
                 )
             return out
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("v2ex: fetch_comments failed: %s", exc)
             return []
 
     async def fetch(self, url: str) -> IntelItem:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from osint_toolkit.collectors.bilibili import BilibiliCollector
 from osint_toolkit.ingest import bilibili_sdk
 from osint_toolkit.models.intel_item import IntelItem
 

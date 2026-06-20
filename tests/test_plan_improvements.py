@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from osint_toolkit.ai.query_expand import expand_query, per_query_limit
-from osint_toolkit.ai.step_registry import normalize_disabled_steps, normalize_step_id
+from osint_toolkit.ai.query_expand import expand_query
 from osint_toolkit.ai.steering import is_step_enabled
+from osint_toolkit.ai.step_registry import normalize_disabled_steps, normalize_step_id
 from osint_toolkit.collectors.comment_mine_registry import supports_comment_mine
 from osint_toolkit.collectors.registry import COLLECTORS
 from osint_toolkit.collectors.source_catalog import get_catalog_grouped

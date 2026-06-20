@@ -137,7 +137,6 @@ def _build_records(rows, *, limit: int) -> list[dict[str, Any]]:
 
 def list_recognition_records(*, limit: int = 50) -> dict[str, Any]:
     """List recent positive-engagement events used by persona (events table)."""
-    types = tuple(RECOGNITION_EVENT_TYPES.keys())
     conn = connect()
     try:
         summary = _recognition_summary(conn)

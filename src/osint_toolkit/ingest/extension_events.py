@@ -50,7 +50,7 @@ def _video_url(item: dict) -> str:
     return item.get("link") or item.get("uri") or ""
 
 
-from osint_toolkit.utils.zhihu_urls import content_url_from_target, public_zhihu_url
+from osint_toolkit.utils.zhihu_urls import content_url_from_target
 
 
 def _zhihu_content_url(target: dict, item: dict | None = None) -> str:

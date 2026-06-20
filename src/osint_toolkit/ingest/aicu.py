@@ -4,17 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any
 
 import httpx
 
 from osint_toolkit.http.client import HttpClient
+from osint_toolkit.http.ssrf import assert_public_http_url
 from osint_toolkit.ingest.bilibili_account import _nav_mid
 from osint_toolkit.storage.sqlite import connect
 from osint_toolkit.utils.config import load_config
 
 AICU_GETREPLY = "https://api.aicu.cc/api/v3/search/getreply"
 _CF_MARKERS = ("Just a moment", "safeline", "cf-browser-verification", "challenge-platform")
+logger = logging.getLogger(__name__)
 
 
 def parent_url_from_dyn(dyn: dict[str, Any] | None, *, aid_bvid: dict[str, str] | None = None) -> str:
@@ -143,6 +146,7 @@ async def _fetch_aicu_page(
     ps: int,
 ) -> dict[str, Any]:
     headers = _aicu_request_headers()
+    assert_public_http_url(AICU_GETREPLY)
     resp = await client.get(
         AICU_GETREPLY,
         params={"uid": str(uid), "pn": str(pn), "ps": str(ps), "mode": "0", "keyword": ""},
@@ -174,8 +178,8 @@ async def _resolve_bvid(client: HttpClient, aid: str, cache: dict[str, str]) -> 
             bvid = (payload.get("data") or {}).get("bvid") or ""
             if bvid:
                 cache[aid] = bvid
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("aicu: resolve bvid for aid=%s failed: %s", aid, exc)
 
 
 async def _persist_replies(
@@ -184,23 +188,30 @@ async def _persist_replies(
     limit: int,
     bili: HttpClient | None = None,
 ) -> tuple[list[dict[str, Any]], int, int]:
-    """Return (saved_rows, skipped, all_count_hint)."""
+    """Return (saved_rows, skipped, all_count_hint).
+
+    先在网络阶段解析所有 aid→bvid 映射并构造 entry，再打开 SQLite 连接执行
+    dedup 与写入；避免持有 DB 连接跨 ``await`` 网络请求（AGENTS.md SQLite 并发规约）。
+    """
     bili = bili or HttpClient()
-    results: list[dict[str, Any]] = []
     aid_bvid: dict[str, str] = {}
+    entries: list[dict[str, Any]] = []
+    for raw in replies:
+        dyn = raw.get("dyn") if isinstance(raw.get("dyn"), dict) else {}
+        if int(dyn.get("type") or 0) == 1:
+            oid = str(dyn.get("oid") or "")
+            if oid and oid not in aid_bvid:
+                await _resolve_bvid(bili, oid, aid_bvid)
+        if len(entries) >= limit:
+            break
+        entry = parse_aicu_reply(raw, aid_bvid=aid_bvid)
+        if entry:
+            entries.append(entry)
+    results: list[dict[str, Any]] = []
     skipped = 0
     conn = connect()
     try:
-        for raw in replies:
-            dyn = raw.get("dyn") if isinstance(raw.get("dyn"), dict) else {}
-            if int(dyn.get("type") or 0) == 1:
-                oid = str(dyn.get("oid") or "")
-                if oid and oid not in aid_bvid:
-                    await _resolve_bvid(bili, oid, aid_bvid)
-
-            entry = parse_aicu_reply(raw, aid_bvid=aid_bvid)
-            if not entry:
-                continue
+        for entry in entries:
             dedup_key = _dedup_key("bilibili_comment_post", entry["rpid"])
             if not _try_mark_dedup(conn, dedup_key, "bilibili_comment_post"):
                 skipped += 1
@@ -210,8 +221,6 @@ async def _persist_replies(
                 ("bilibili_comment_post", json.dumps(entry, ensure_ascii=False)),
             )
             results.append(entry)
-            if len(results) >= limit:
-                break
         conn.commit()
     finally:
         conn.close()

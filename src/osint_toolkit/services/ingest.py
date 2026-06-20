@@ -16,8 +16,6 @@ from osint_toolkit.ingest.bilibili_account import (
 )
 from osint_toolkit.ingest.browser import ingest_browser_history
 from osint_toolkit.ingest.likes import list_recognition_records
-from osint_toolkit.storage.knowledge import log_event_deduped
-from osint_toolkit.ingest.zhihu_endpoint_registry import ZHIHU_PERSONA_CAPABILITY_NOTE
 from osint_toolkit.ingest.zhihu_account import (
     ingest_browsing,
     ingest_followees,
@@ -28,7 +26,9 @@ from osint_toolkit.ingest.zhihu_account import (
     zhihu_layer_status,
 )
 from osint_toolkit.ingest.zhihu_account import ingest_favorites as ingest_zhihu_favorites
+from osint_toolkit.ingest.zhihu_endpoint_registry import ZHIHU_PERSONA_CAPABILITY_NOTE
 from osint_toolkit.ingest.zhihu_synthetic import build_synthetic_activities
+from osint_toolkit.storage.knowledge import log_event_deduped
 
 
 def ingest_browser(*, since_days: int = 90) -> dict[str, Any]:
@@ -225,8 +225,6 @@ async def ingest_zhihu() -> dict[str, Any]:
             kind = str(entry.get("event_kind") or "")
             log_event_deduped(event_type, entry, f"{event_type}|{url}|{kind}|synthetic")
 
-    voteanswers: list[dict] = []
-    activities: list[dict] = []
     activities_non_vote: list[dict] = []
     activity_total = len(synthetic)
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-
 from urllib.parse import quote
 
 from fastapi import APIRouter, Request
@@ -16,7 +15,7 @@ from osint_toolkit.collectors.source_catalog import (
     get_catalog_grouped,
     get_default_source_ids,
 )
-from osint_toolkit.utils.config import load_config, load_sync_config
+from osint_toolkit.utils.config import load_config
 from osint_toolkit.web.static_assets import static_asset_version
 from osint_toolkit.web.web_token import get_or_create_token
 

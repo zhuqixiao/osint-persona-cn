@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -32,6 +34,22 @@ def _new_id() -> str:
     return uuid4().hex[:12]
 
 
+def _atomic_write_text(path, text: str) -> None:
+    """原子写入文本：先写临时文件再 os.replace，避免中途崩溃产生截断 JSON。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
 def create_tree(title: str, *, query: str = "") -> dict[str, Any]:
     tree_id = datetime.now(UTC).strftime("%Y%m%d") + f"-{_new_id()}"
     root_id = _new_id()
@@ -53,7 +71,7 @@ def create_tree(title: str, *, query: str = "") -> dict[str, Any]:
             }
         ],
     }
-    _tree_path(tree_id).write_text(json.dumps(tree, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_write_text(_tree_path(tree_id), json.dumps(tree, ensure_ascii=False, indent=2))
     return tree
 
 
@@ -84,9 +102,24 @@ def load_tree(tree_id: str) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def save_tree(tree: dict[str, Any]) -> None:
+def save_tree(tree: dict[str, Any], *, expected_updated_at: str | None = None) -> None:
+    """保存研究树。
+
+    Args:
+        expected_updated_at: 乐观并发控制——若传入且与磁盘上当前树的
+            ``updated_at`` 不一致则抛 ``FileNotFoundError`` 表示已被其它写入
+            覆盖，调用方应重新 ``load_tree`` 合并后再保存。
+    """
+    path = _tree_path(tree["id"])
+    if expected_updated_at is not None and path.exists():
+        try:
+            disk = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            disk = {}
+        if (disk.get("updated_at") or "") != expected_updated_at:
+            raise FileNotFoundError(f"tree {tree['id']} was modified concurrently")
     tree["updated_at"] = _now()
-    _tree_path(tree["id"]).write_text(json.dumps(tree, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_write_text(path, json.dumps(tree, ensure_ascii=False, indent=2))
 
 
 def _find_node(tree: dict[str, Any], node_id: str) -> dict[str, Any] | None:

@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 
 from osint_toolkit.ingest.zhihu_endpoint_registry import (
+    VOTE_ENDPOINTS,
     layer_status_from_count,
     paginate_member_api,
-    VOTE_ENDPOINTS,
 )
 
 
@@ -19,7 +19,6 @@ def test_layer_status_from_count():
 
 @pytest.mark.asyncio
 async def test_paginate_member_api_first_working_endpoint(monkeypatch):
-    from osint_toolkit.ingest import zhihu_endpoint_registry as reg
 
     calls: list[str] = []
 

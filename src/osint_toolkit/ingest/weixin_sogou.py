@@ -15,6 +15,7 @@ from bs4 import BeautifulSoup
 from osint_toolkit.auth.cookie_sync import cookie_header_for_url
 from osint_toolkit.collectors.serp.detection import is_blocked_response
 from osint_toolkit.http.client import HttpClient
+from osint_toolkit.http.ssrf import assert_public_http_url
 from osint_toolkit.utils.config import get_weixin_config
 
 _SOUGOU_BASE = "https://weixin.sogou.com"
@@ -141,6 +142,7 @@ class WeixinSogouSession:
         self.search_url = ""
 
     async def __aenter__(self) -> WeixinSogouSession:
+        assert_public_http_url(_SOUGOU_BASE)
         self._client = httpx.AsyncClient(
             timeout=self.http.timeout,
             proxy=self.http._proxy,
@@ -185,17 +187,21 @@ class WeixinSogouSession:
             if not sogou_url or "weixin.sogou.com" not in sogou_url:
                 continue
             try:
+                assert_public_http_url(sogou_url)
                 headers = weixin_sogou_headers(referer=referer, user_agent=self.http.user_agent)
                 resp = await self._client.get(sogou_url, headers=headers)
                 final = str(resp.url)
                 if "mp.weixin.qq.com" in final:
+                    assert_public_http_url(final)
                     row["mp_url"] = final
                     row["url"] = final
                     continue
                 match = re.search(r"https://mp\.weixin\.qq\.com/s\?[^\"'\s<]+", resp.text or "")
                 if match:
-                    row["mp_url"] = match.group(0)
-                    row["url"] = match.group(0)
+                    mp_url = match.group(0)
+                    assert_public_http_url(mp_url)
+                    row["mp_url"] = mp_url
+                    row["url"] = mp_url
             except Exception:  # noqa: BLE001
                 continue
             await asyncio.sleep(0.35)

@@ -35,9 +35,6 @@ async def test_zhihu_search_playwright_fallback(monkeypatch):
             col._parse_object(sample["data"][0]["object"]),
         ]
 
-    async def fail_search(*args, **kwargs):
-        raise RuntimeError("api blocked")
-
     async def noop_expand(items):
         return []
 

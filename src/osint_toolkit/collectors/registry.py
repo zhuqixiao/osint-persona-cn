@@ -9,7 +9,6 @@ from osint_toolkit.collectors.site_search import build_site_collector
 from osint_toolkit.collectors.source_catalog import (
     get_default_source_ids,
     get_site_search_entries,
-    get_source_labels,
     merge_source_priority,
 )
 from osint_toolkit.collectors.v2ex import V2exCollector

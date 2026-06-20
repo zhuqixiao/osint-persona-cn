@@ -63,3 +63,29 @@ def _reject_private_ip(ip: ipaddress._BaseAddress) -> None:
         or ip.is_unspecified
     ):
         raise SSRFError(f"private or reserved address blocked: {ip}")
+
+
+def assert_loopback_url(url: str) -> str:
+    """仅允许指向本机 loopback 的 http(s) URL。
+
+    用于合法的本机调试端点（如 Chrome CDP ``http://127.0.0.1:9222``），
+    但拒绝链路本地（含 ``169.254.169.254`` 元数据服务）、其它私网与公网地址。
+    """
+    text = str(url or "").strip()
+    if not text:
+        raise SSRFError("empty url")
+    parsed = urlparse(text)
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in {"http", "https"}:
+        raise SSRFError(f"unsupported scheme: {scheme or '(none)'}")
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        raise SSRFError("missing hostname")
+    if host not in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            raise SSRFError(f"non-loopback host blocked: {host}")
+        if not ip.is_loopback:
+            raise SSRFError(f"non-loopback host blocked: {host}")
+    return text

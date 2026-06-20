@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Type
-
 from osint_toolkit.collectors.base import BaseCollector
 from osint_toolkit.collectors.serp.engine import SerpEngine, hits_to_items
 from osint_toolkit.http.client import HttpClient
@@ -16,7 +14,7 @@ def build_site_collector(
     domain: str,
     *,
     fetch_content: bool = True,
-) -> Type[BaseCollector]:
+) -> type[BaseCollector]:
     """为 source_catalog 中的站点条目动态生成 Collector 类。"""
 
     class _SiteCollector(BaseCollector):

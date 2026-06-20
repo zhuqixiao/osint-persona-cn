@@ -7,8 +7,8 @@ from urllib.parse import parse_qs, quote, urlparse
 
 import httpx
 
-from osint_toolkit.http.ssrf import SSRFError, assert_public_http_url
 from osint_toolkit.auth.cookie_sync import cookie_header_for_url
+from osint_toolkit.http.ssrf import assert_public_http_url
 from osint_toolkit.utils.config import load_config
 
 

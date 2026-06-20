@@ -9,8 +9,8 @@ from datetime import UTC, datetime
 from osint_toolkit.ai.client import DeepSeekClient
 from osint_toolkit.ai.prompt_loader import load_prompt
 from osint_toolkit.ai.steering import build_system_prompt, is_step_enabled
-from osint_toolkit.analyzers.cluster import cluster_items
 from osint_toolkit.analyzers.citations import citation_id_for_item
+from osint_toolkit.analyzers.cluster import cluster_items
 from osint_toolkit.models.intel_item import IntelItem
 from osint_toolkit.utils.zhihu_urls import public_zhihu_url
 

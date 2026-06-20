@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
-import pytest
-
 from osint_toolkit.ingest.aicu import (
     extract_replies_from_payload,
     ingest_aicu_from_json,

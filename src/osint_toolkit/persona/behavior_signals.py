@@ -7,9 +7,8 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from osint_toolkit.storage.sqlite import connect
-
 from osint_toolkit.ingest.recognition_types import INVENTORY_SNAPSHOT_TYPES
+from osint_toolkit.storage.sqlite import connect
 
 _HIGH_VALUE_TYPES = frozenset(
     {
@@ -99,14 +98,19 @@ def score_event(event_type: str, data: dict[str, Any]) -> int:
 
 def load_ranked_behavior_samples(*, fetch_limit: int = 400, sample_limit: int = 40) -> list[dict[str, Any]]:
     conn = connect()
-    rows = conn.execute(
-        "SELECT event_type, data_json, created_at FROM events ORDER BY id DESC LIMIT ?",
-        (fetch_limit,),
-    ).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute(
+            "SELECT event_type, data_json, created_at FROM events ORDER BY id DESC LIMIT ?",
+            (fetch_limit,),
+        ).fetchall()
+    finally:
+        conn.close()
     ranked: list[tuple[int, dict[str, Any]]] = []
     for row in rows:
-        data = json.loads(row["data_json"])
+        try:
+            data = json.loads(row["data_json"])
+        except (json.JSONDecodeError, TypeError):
+            continue
         s = score_event(str(row["event_type"]), data)
         if s < 8:
             continue
@@ -146,11 +150,13 @@ def load_recent_interest_hints(*, limit: int = 12) -> list[dict[str, str]]:
 def load_event_type_breakdown(*, fetch_limit: int = 500) -> dict[str, Any]:
     """Split event counts into inventory snapshots vs recent activity, with 7-day recency."""
     conn = connect()
-    rows = conn.execute(
-        "SELECT event_type, created_at FROM events ORDER BY id DESC LIMIT ?",
-        (fetch_limit,),
-    ).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute(
+            "SELECT event_type, created_at FROM events ORDER BY id DESC LIMIT ?",
+            (fetch_limit,),
+        ).fetchall()
+    finally:
+        conn.close()
     cutoff = datetime.now(UTC) - timedelta(days=7)
     inventory = Counter()
     recent_all = Counter()

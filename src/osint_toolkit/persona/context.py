@@ -87,7 +87,10 @@ def load_seen_urls(*, min_score: int = 12, limit: int = 500) -> set[str]:
         conn.close()
     seen: set[str] = set()
     for row in rows:
-        data = json.loads(row["data_json"])
+        try:
+            data = json.loads(row["data_json"])
+        except (json.JSONDecodeError, TypeError):
+            continue
         if score_event(str(row["event_type"]), data) < min_score:
             continue
         url = str(data.get("url") or data.get("parent_url") or "").strip()

@@ -1,6 +1,5 @@
 """Setup sync tracking tests."""
 
-from pathlib import Path
 
 from osint_toolkit.services.setup import get_last_full_sync_at, get_setup_status, record_full_sync
 

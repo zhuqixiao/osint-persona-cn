@@ -22,9 +22,9 @@ from osint_toolkit.pipeline.progress import (
     request_cancel,
     update_progress,
 )
+from osint_toolkit.research.tree import update_search_node_status
 from osint_toolkit.services.run_session import set_run_status
 from osint_toolkit.services.search_params import strip_session_keys
-from osint_toolkit.research.tree import update_search_node_status
 
 _MAX_JOBS = 50
 _TERMINAL_JOB_STATUSES = frozenset({"done", "error", "cancelled"})
@@ -73,7 +73,7 @@ def _remove_from_search_queue(run_id: str) -> None:
     global _search_queue
     if not _search_queue:
         return
-    _search_queue = deque((item for item in _search_queue if item[0] != run_id))
+    _search_queue = deque(item for item in _search_queue if item[0] != run_id)
     _refresh_queue_positions()
 
 

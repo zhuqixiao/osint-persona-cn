@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from osint_toolkit.pipeline.progress import check_cancelled
 from osint_toolkit.services import browser_sync as browser_sync_service

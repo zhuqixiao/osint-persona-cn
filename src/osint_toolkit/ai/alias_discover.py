@@ -7,10 +7,6 @@ import json
 import re
 from typing import Any
 
-from osint_toolkit.ai.client import DeepSeekClient
-from osint_toolkit.ai.json_util import parse_json_object
-from osint_toolkit.ai.prompt_loader import load_prompt
-from osint_toolkit.ai.steering import build_system_prompt, is_step_enabled
 from osint_toolkit.ai.alias_filter import (
     filter_relevant_terms,
     has_relevance_to_query,
@@ -18,9 +14,13 @@ from osint_toolkit.ai.alias_filter import (
     is_valid_search_term,
     product_variants,
 )
+from osint_toolkit.ai.client import DeepSeekClient
 from osint_toolkit.ai.entity_store import classify_slurs, merge_discovered_aliases
-from osint_toolkit.collectors.github import GithubCollector
+from osint_toolkit.ai.json_util import parse_json_object
+from osint_toolkit.ai.prompt_loader import load_prompt
+from osint_toolkit.ai.steering import build_system_prompt, is_step_enabled
 from osint_toolkit.collectors.bilibili import BilibiliCollector
+from osint_toolkit.collectors.github import GithubCollector
 from osint_toolkit.collectors.v2ex import V2exCollector
 from osint_toolkit.collectors.web import WebCollector
 from osint_toolkit.collectors.weixin import WeixinCollector

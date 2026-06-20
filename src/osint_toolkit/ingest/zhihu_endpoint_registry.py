@@ -69,7 +69,7 @@ PUBLISH_ENDPOINTS: tuple[EndpointSpec, ...] = (
 )
 
 # 知乎 Playwright 自动补洞已停用（实测 Cookie 模式 0 捕获）
-ZHihu_PROBE_PAGES: tuple[dict[str, str], ...] = ()
+ZHIHU_PROBE_PAGES: tuple[dict[str, str], ...] = ()
 
 
 def layer_status_from_count(count: int, *, attempted: bool = True) -> LayerStatus:

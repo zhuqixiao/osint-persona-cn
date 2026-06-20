@@ -10,7 +10,7 @@ from osint_toolkit.ai.json_util import parse_json_object
 from osint_toolkit.ai.prompt_loader import load_prompt
 from osint_toolkit.ai.steering import build_system_prompt, is_step_enabled
 from osint_toolkit.collectors.registry import COLLECTORS
-from osint_toolkit.collectors.source_catalog import get_source_entries, get_source_labels
+from osint_toolkit.collectors.source_catalog import get_source_entries
 from osint_toolkit.persona.context import PersonaContext
 from osint_toolkit.utils.config import get_search_config
 

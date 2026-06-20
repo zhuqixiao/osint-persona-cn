@@ -3013,7 +3013,7 @@ function renderJobProgressPanel(container, state, options = {}) {
         .slice(0, 4)
         .map(
           (r) =>
-            `<li><a href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${escapeHtml((r.title || r.url || "").slice(0, 60))}</a></li>`
+            `<li><a href="${safeHref(r.url)}" target="_blank" rel="noopener">${escapeHtml((r.title || r.url || "").slice(0, 60))}</a></li>`
         )
         .join("")}</ul>`
     : "";
@@ -4734,7 +4734,7 @@ async function loadRecentItems() {
   try {
     const data = await api("GET", "/api/knowledge/items?limit=10");
     el.innerHTML = data.items.map((i) =>
-      `<div class="card"><a href="${escapeHtml(i.url)}" target="_blank">${escapeHtml(i.title)}</a><div class="muted">[${i.source}]</div></div>`
+      `<div class="card"><a href="${safeHref(i.url)}" target="_blank" rel="noopener">${escapeHtml(i.title)}</a><div class="muted">[${escapeHtml(i.source || "")}]</div></div>`
     ).join("") || "<p class='muted'>暂无收录</p>";
   } catch (_) {
     el.innerHTML = "<p class='muted'>加载失败</p>";
@@ -4825,7 +4825,7 @@ async function searchKnowledge() {
             <p class="ui-list-row-sub muted">${escapeHtml(i.summary || i.content?.slice(0, 200) || "")}</p>
           </div>
           <div class="ui-list-row-actions">
-            <a class="btn btn-sm btn-secondary" href="${escapeHtml(i.url)}" target="_blank" rel="noopener">原文</a>
+            <a class="btn btn-sm btn-secondary" href="${safeHref(i.url)}" target="_blank" rel="noopener">原文</a>
           </div>
         </div>`;
       }).join("")}</div>`
@@ -4957,7 +4957,7 @@ async function loadBehavior() {
     el.innerHTML = `<div class="ui-inset-group behavior-list-group">${data.items.map((row) => {
       const dwell = row.duration_ms ? ` · ${Math.round(row.duration_ms / 1000)}s` : "";
       const title = row.url
-        ? `<a href="${escapeHtml(row.url)}" target="_blank" rel="noopener">${escapeHtml((row.title || row.url).slice(0, 80))}</a>${dwell}`
+        ? `<a href="${safeHref(row.url)}" target="_blank" rel="noopener">${escapeHtml((row.title || row.url).slice(0, 80))}</a>${dwell}`
         : escapeHtml((row.title || "—").slice(0, 80));
       return `<div class="ui-list-row behavior-list-row">
         <div class="ui-list-row-main">
@@ -5133,7 +5133,7 @@ function renderPersonaModel(model) {
         .map((h) => {
           const title = escapeHtml((h.title || "（无标题）").slice(0, 120));
           const src = escapeHtml(SOURCE_LABELS[h.source] || h.source || "");
-          const url = h.url ? `<a href="${escapeHtml(h.url)}" target="_blank" rel="noopener">${title}</a>` : title;
+          const url = h.url ? `<a href="${safeHref(h.url)}" target="_blank" rel="noopener">${title}</a>` : title;
           return `<li>${url}${src ? ` <span class="muted">· ${src}</span>` : ""}</li>`;
         })
         .join("")}</ul></div>`,
@@ -5184,10 +5184,28 @@ function initPersona() {
     try {
       const data = await api("POST", "/api/persona/build?review=true");
       showPersonaReview(data);
-      const warn = data.brief_ai_error
-        ? `画像 v${data.version} 已生成，但 AI 摘要失败：${data.brief_ai_error}`
-        : `画像 v${data.version} 已生成。<a href="/">去搜罗页试试画像模拟</a>`;
-      showPageNotice("persona-notice", warn, data.brief_ai_error ? "warn" : "success");
+      const noticeEl = document.getElementById("persona-notice");
+      if (noticeEl) {
+        noticeEl.className = `alert alert-${data.brief_ai_error ? "warn" : "success"} page-notice`;
+        noticeEl.innerHTML = "";
+        const ver = document.createElement("span");
+        ver.textContent = `画像 v${data.version} 已生成`;
+        noticeEl.appendChild(ver);
+        if (data.brief_ai_error) {
+          const err = document.createElement("span");
+          err.textContent = `，但 AI 摘要失败：${data.brief_ai_error}`;
+          noticeEl.appendChild(err);
+        } else {
+          const sep = document.createTextNode("。");
+          const link = document.createElement("a");
+          link.href = "/";
+          link.textContent = "去搜罗页试试画像模拟";
+          noticeEl.appendChild(sep);
+          noticeEl.appendChild(link);
+        }
+        noticeEl.classList.remove("hidden");
+        setTimeout(() => noticeEl.classList.add("hidden"), 10000);
+      }
       loadPersona();
     } catch (err) {
       showPageNotice("persona-notice", escapeHtml(err.message), "error");

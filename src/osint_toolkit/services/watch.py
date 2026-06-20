@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Any
 
 from osint_toolkit.auth.paths import get_data_dir
-from osint_toolkit.utils.safe_path import assert_safe_id, resolve_under
 from osint_toolkit.services.search import run_search
 from osint_toolkit.utils.config import load_config
+from osint_toolkit.utils.safe_path import assert_safe_id, resolve_under
 
 _INTERVAL_RE = re.compile(r"^(\d+)(h|m)$", re.IGNORECASE)
 _DAILY_TIME_RE = re.compile(r"^(\d{1,2}):(\d{2})$")

@@ -6,7 +6,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from osint_toolkit.persona.context import get_event_count, is_persona_stale, refresh_persona_stale_flag
+from osint_toolkit.persona.context import get_event_count, refresh_persona_stale_flag
 from osint_toolkit.persona.store import load_mental_model, load_persona_brief, save_mental_model
 from osint_toolkit.utils.config import load_config
 

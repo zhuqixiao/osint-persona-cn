@@ -10,12 +10,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from osint_toolkit.services.events import prune_old_events
 from osint_toolkit.services.run_session import mark_stale_running_as_interrupted
 from osint_toolkit.services.runs import cleanup_runs
-from osint_toolkit.services.events import prune_old_events
 from osint_toolkit.services.watch_scheduler import watch_scheduler_loop
-from osint_toolkit.web.routes import api, pages
 from osint_toolkit.web.middleware import WebTokenMiddleware
+from osint_toolkit.web.routes import api, pages
 
 _STATIC = Path(__file__).resolve().parent / "static"
 

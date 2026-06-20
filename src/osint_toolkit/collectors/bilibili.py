@@ -212,6 +212,8 @@ class BilibiliCollector(BaseCollector):
 
         bvid = entry.get("bvid") or ""
         aid = entry.get("aid")
+        if not bvid and not aid:
+            return None
         url = f"https://www.bilibili.com/video/{bvid or ('av' + str(aid))}"
         title = re.sub(r"<[^>]+>", "", entry.get("title", ""))
         desc = bilibili_sdk._normalize_video_desc(

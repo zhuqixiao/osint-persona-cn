@@ -1,64 +1,45 @@
 """搜索管线 / Search pipeline."""
 
-
-
 from __future__ import annotations
 
-
-
 import asyncio
-
 import json
-
 import os
-
 from typing import Any
-
-
-
-from osint_toolkit.ai.persona_sim import simulate_items
 
 from osint_toolkit.ai.alias_discover import discover_aliases
 from osint_toolkit.ai.alias_filter import filter_relevant_terms, has_relevance_to_query, normalize_product_key
+from osint_toolkit.ai.persona_sim import simulate_items
 from osint_toolkit.ai.query_expand import expand_query, per_query_limit
-
 from osint_toolkit.ai.report import generate_report
-
+from osint_toolkit.ai.steering import is_step_enabled
 from osint_toolkit.ai.summarize import summarize_batch
-
+from osint_toolkit.analyzers.ai_relevance import refine_relevance_with_ai
+from osint_toolkit.analyzers.citations import assign_citation_ids, build_citation_urls
 from osint_toolkit.analyzers.comments import summarize_comments
+from osint_toolkit.analyzers.dedup import dedup_items
+from osint_toolkit.analyzers.signals import apply_persona_boost, extract_signals
 from osint_toolkit.analyzers.zhihu_fetch_gate import (
     heuristic_zhihu_deep_plan,
     merge_comment_lists,
     plan_zhihu_deep_fetch,
 )
-
-from osint_toolkit.analyzers.ai_relevance import refine_relevance_with_ai
-from osint_toolkit.analyzers.citations import assign_citation_ids, build_citation_urls
-from osint_toolkit.analyzers.dedup import dedup_items
-
-from osint_toolkit.analyzers.signals import apply_persona_boost, extract_signals
-
-from osint_toolkit.persona.context import load_seen_urls, maybe_load_persona_context
-
 from osint_toolkit.auth.cookie_sync import sync_browser_cookies
-
 from osint_toolkit.collectors.bilibili import BilibiliCollector
 from osint_toolkit.collectors.comment_mine_registry import COMMENT_MINE_SOURCES
+from osint_toolkit.collectors.registry import (
+    COLLECTORS,
+    normalize_sources,
+)
+from osint_toolkit.collectors.source_catalog import get_source_labels
 from osint_toolkit.collectors.thread_expand import enrich_forum_threads
 from osint_toolkit.collectors.v2ex import V2exCollector
 from osint_toolkit.collectors.zhihu import ZhihuCollector
-from osint_toolkit.ai.steering import is_step_enabled
-from osint_toolkit.collectors.registry import COLLECTORS, DEFAULT_SEARCH_SOURCES, normalize_sources, merge_source_priority
-from osint_toolkit.collectors.source_catalog import get_source_labels
-
-from osint_toolkit.services.collect_tasks import build_fair_collect_tasks
-
 from osint_toolkit.models.intel_item import IntelItem
-
+from osint_toolkit.persona.context import load_seen_urls, maybe_load_persona_context
 from osint_toolkit.pipeline.context import RunContext
-
 from osint_toolkit.pipeline.progress import JobCancelled, check_cancelled, update_progress
+from osint_toolkit.services.collect_tasks import build_fair_collect_tasks
 
 _zhihu_collect_sem_cache: tuple[int, asyncio.Semaphore] | None = None
 
@@ -77,16 +58,15 @@ def reset_zhihu_collect_sem_for_tests() -> None:
     global _zhihu_collect_sem_cache
     _zhihu_collect_sem_cache = None
 
+
+from osint_toolkit.exporters.report import export_report
 from osint_toolkit.pipeline.runner import PipelineRunner
 from osint_toolkit.pipeline.timing_stats import (
     SearchEtaTracker,
     ingest_completed_run,
     planned_search_phases,
 )
-
 from osint_toolkit.utils.config import get_search_config, load_config
-from osint_toolkit.exporters.report import export_report
-
 
 _SOURCE_LABELS = get_source_labels()
 
@@ -145,7 +125,6 @@ def _recent_url_entries(items: list[Any], existing: list[dict[str, str]], *, lim
     return recent[:limit]
 
 
-
 async def _collect_source(name: str, query: str, limit: int) -> tuple[list[IntelItem], list[str]]:
     cls = COLLECTORS.get(name)
     if not cls:
@@ -163,14 +142,9 @@ async def _collect_source(name: str, query: str, limit: int) -> tuple[list[Intel
     return items, orphan_warnings
 
 
-
-
-
 async def _record_step(runner: PipelineRunner, name: str, coro, **kwargs: Any):
 
     import time
-
-
 
     start = time.perf_counter()
 
@@ -199,13 +173,11 @@ async def _record_step(runner: PipelineRunner, name: str, coro, **kwargs: Any):
     )
 
     try:
-
         data = await coro
 
     except JobCancelled:
         raise
     except Exception as exc:  # noqa: BLE001
-
         status = "error"
 
         issues.append(str(exc))
@@ -219,7 +191,6 @@ async def _record_step(runner: PipelineRunner, name: str, coro, **kwargs: Any):
     artifact_payload: Any = data
 
     if isinstance(data, dict) and "items" in data:
-
         for err in data.get("source_errors") or []:
             issues.append(f"{err.get('source', '?')}: {err.get('error', '')}")
         for warn in data.get("source_warnings") or []:
@@ -228,62 +199,39 @@ async def _record_step(runner: PipelineRunner, name: str, coro, **kwargs: Any):
         artifact_payload = [i.to_dict() for i in data.get("items") or []]
 
     elif isinstance(data, list):
-
         if data and hasattr(data[0], "to_dict"):
-
             artifact_payload = [i.to_dict() for i in data]
 
         else:
-
             artifact_payload = data
 
     if artifact and data is not None:
-
         path = runner._write_artifact(artifact, artifact_payload)
 
         artifacts.append(path.name)
 
     from osint_toolkit.pipeline.runner import StepResult
 
-
-
     result = StepResult(
-
         step=name,
-
         status=status,
-
         duration_ms=duration_ms,
-
         input_summary=kwargs.get("input_summary", ""),
-
         output_summary=(
-
             f"{len(data.get('items', []))} items"
-
             if isinstance(data, dict) and "items" in data
-
             else (f"{len(data)} items" if isinstance(data, list) else "completed")
-
         ),
-
         issues=issues,
-
         artifacts=artifacts,
-
         ai_invoked=kwargs.get("ai_invoked", False),
-
         data=data,
-
     )
 
     step_payload = result.to_dict()
 
     if isinstance(data, dict) and (data.get("source_errors") or data.get("source_warnings")):
-
-        step_payload["data"] = {
-            k: data[k] for k in ("source_errors", "source_warnings") if data.get(k)
-        }
+        step_payload["data"] = {k: data[k] for k in ("source_errors", "source_warnings") if data.get(k)}
 
     step_file = step_path
 
@@ -292,7 +240,6 @@ async def _record_step(runner: PipelineRunner, name: str, coro, **kwargs: Any):
     runner._append_trace(result)
 
     if run_id:
-
         extra_eta: dict[str, Any] = {}
         if eta_tracker:
             eta_tracker.mark_step_completed(name, duration_ms)
@@ -302,35 +249,19 @@ async def _record_step(runner: PipelineRunner, name: str, coro, **kwargs: Any):
                 extra_eta["eta_sec"] = eta_val
 
         update_progress(
-
             run_id,
-
             name,
-
             detail=result.output_summary or "完成",
-
             mark_completed={
-
                 "step": name,
-
                 "duration_ms": duration_ms,
-
                 "summary": result.output_summary,
-
                 "status": status,
-
             },
-
             **extra_eta,
-
         )
 
     return result
-
-
-
-
-
 
 
 def _allocate_comment_quota(sources: list[str], top: int) -> dict[str, int]:
@@ -511,77 +442,43 @@ async def _mine_comments(
             summary = await summarize_comments(comments, no_ai=no_ai, disabled_steps=disabled_steps)
 
             if summary:
-
                 item.layers["comments_summary"] = summary
 
             mined.append(
-
                 {
-
                     "item_id": item.id,
-
                     "source": src,
-
                     "url": item.url,
-
                     "title": item.title,
-
                     "comment_count": len(comments),
-
                     "comments_summary": summary,
-
                     "subtitle_kind": (item.layers.get("subtitle") or {}).get("kind"),
-
                     "danmaku_summary": item.layers.get("danmaku_summary", ""),
-
                 }
-
             )
 
     return mined
 
 
-
-
-
 async def run_search(
-
     query: str,
-
     *,
-
     sources: list[str] | None = None,
-
     limit: int = 10,
-
     digest: bool = False,
-
     trace: bool = False,
-
     profile: str = "default",
-
     ai_instruct: str = "",
-
     no_ai: bool = False,
-
     no_simulate: bool = False,
-
     disabled_ai_steps: list[str] | None = None,
-
     deep_top: int = 0,
-
     comment_mine_top: int | None = None,
-
     include_slurs: bool | None = None,
-
     run_id: str | None = None,
-
     source_overrides: dict[str, list[str]] | None = None,
-
     serp_fallback_accepted: list[str] | None = None,
-
     comment_mine_sources: list[str] | None = None,
-
 ) -> dict[str, Any]:
 
     cfg = load_config()
@@ -590,17 +487,11 @@ async def run_search(
 
     sources, unknown_sources = normalize_sources(sources, profile=profile)
 
-
-
     if comment_mine_top is None:
-
         comment_mine_top = int(search_cfg.get("comment_mine_top", 12))
 
     if deep_top > 0 and comment_mine_top == 0:
-
         comment_mine_top = deep_top
-
-
 
     summarize_top = int(search_cfg.get("ai_summarize_top", 15))
     search_phases = planned_search_phases(
@@ -620,8 +511,6 @@ async def run_search(
         },
     )
 
-
-
     update_progress(run_id, "starting", detail="检查 Cookie 与配置…")
     check_cancelled(run_id)
 
@@ -634,29 +523,18 @@ async def run_search(
             update_progress(run_id, "starting", detail=f"Cookie 同步失败（继续搜罗）: {exc}")
 
     ctx_kwargs: dict[str, Any] = {
-
         "command": "search",
-
         "query": query,
-
         "profile": profile,
-
         "sources": sources,
-
         "trace": trace,
-
         "ai_instruct": ai_instruct,
-
         "no_ai": no_ai,
-
         "no_simulate": no_simulate,
-
         "disabled_ai_steps": disabled_ai_steps or [],
-
     }
 
     if run_id:
-
         ctx_kwargs["run_id"] = run_id
 
     ctx = RunContext(**ctx_kwargs)
@@ -664,8 +542,6 @@ async def run_search(
     runner = PipelineRunner(ctx)
 
     persona_ctx = maybe_load_persona_context()
-
-
 
     discover_meta: dict[str, Any] = {}
     if search_cfg.get("discover_aliases", True):
@@ -678,7 +554,9 @@ async def run_search(
                 query,
                 sources,
                 no_ai=no_ai,
-                include_slurs=include_slurs if include_slurs is not None else bool(search_cfg.get("include_slurs", True)),
+                include_slurs=include_slurs
+                if include_slurs is not None
+                else bool(search_cfg.get("include_slurs", True)),
                 disabled_steps=disabled_ai_steps,
             ),
             input_summary=f"query={query}",
@@ -763,15 +641,9 @@ async def run_search(
     if search_cfg.get("strict_mode"):
         queries_used = filter_relevant_terms(queries_used, query)
 
-    match_terms: list[str] = [query] + [
-        q for q in queries_used if q != query and has_relevance_to_query(q, query)
-    ]
+    match_terms: list[str] = [query] + [q for q in queries_used if q != query and has_relevance_to_query(q, query)]
 
-    collect_sources = list(
-        query_analysis.get("active_sources")
-        or query_analysis.get("recommended_sources")
-        or sources
-    )
+    collect_sources = list(query_analysis.get("active_sources") or query_analysis.get("recommended_sources") or sources)
 
     from osint_toolkit.services.source_preflight import apply_auth_gates
 
@@ -851,7 +723,9 @@ async def run_search(
                 )
                 break
             wait_timeout = min(30.0, max(1.0, collect_timeout - elapsed))
-            finished_set, pending = await asyncio.wait(pending, timeout=wait_timeout, return_when=asyncio.FIRST_COMPLETED)
+            finished_set, pending = await asyncio.wait(
+                pending, timeout=wait_timeout, return_when=asyncio.FIRST_COMPLETED
+            )
             if not finished_set:
                 continue
             for finished in finished_set:
@@ -874,9 +748,7 @@ async def run_search(
                 elif isinstance(group, list):
                     for item in group:
                         for warning in item.personal.pop("collector_warnings", []) or []:
-                            source_warnings.append(
-                                {"source": source_name, "warning": warning, "query": q}
-                            )
+                            source_warnings.append({"source": source_name, "warning": warning, "query": q})
                         matched = item.personal.get("matched_queries") or []
                         if q not in matched:
                             matched.append(q)
@@ -947,23 +819,14 @@ async def run_search(
     )
 
     step_collect = await _record_step(
-
         runner,
-
         "collect_all",
-
         collect_all(),
-
         input_summary=f"queries={queries_used}, sources={collect_sources}, per_limit={per_limit}",
-
         artifact_name="items_raw.json",
-
         run_id=run_id,
-
         eta_tracker=eta_tracker,
-
         eta_after_phase="dedup",
-
     )
 
     collect_data = step_collect.data if isinstance(step_collect.data, dict) else {"items": step_collect.data or []}
@@ -973,31 +836,22 @@ async def run_search(
     source_errors: list[dict[str, str]] = collect_data.get("source_errors") or []
     source_warnings: list[dict[str, str]] = collect_data.get("source_warnings") or []
 
-
-
     seen_urls = load_seen_urls() if persona_ctx else set()
-
-
 
     def dedup() -> list[IntelItem]:
 
         deduped = dedup_items(items)
 
         for item in deduped:
-
             extract_signals(item, query, match_terms=match_terms)
 
             if persona_ctx and persona_ctx.recent_topics:
-
                 apply_persona_boost(item, persona_ctx.recent_topics)
 
             if item.url and item.url in seen_urls:
-
                 item.personal["already_seen"] = True
 
         return deduped
-
-
 
     update_progress(
         run_id,
@@ -1068,11 +922,8 @@ async def run_search(
 
     items_for_mining = [i for i in items if not i.signals.fold_reason]
     step_comments = await _record_step(
-
         runner,
-
         "mine_comments",
-
         _mine_comments(
             items_for_mining,
             top=comment_mine_top,
@@ -1081,28 +932,18 @@ async def run_search(
             comment_mine_sources=comment_mine_sources,
             search_cfg=search_cfg,
         ),
-
         input_summary=f"top={comment_mine_top}",
-
         artifact_name="comments_mined.json",
-
-        ai_invoked=not no_ai and comment_mine_top > 0 and is_step_enabled(
-            "comment_mine", no_ai=no_ai, disabled_steps=disabled_ai_steps
-        ),
-
+        ai_invoked=not no_ai
+        and comment_mine_top > 0
+        and is_step_enabled("comment_mine", no_ai=no_ai, disabled_steps=disabled_ai_steps),
         run_id=run_id,
-
         progress_detail=f"评论挖掘（top {comment_mine_top}）…" if comment_mine_top else "跳过评论挖掘",
-
         eta_tracker=eta_tracker,
-
         eta_after_phase="ai_summarize",
-
     )
 
     _ = step_comments
-
-
 
     update_progress(
         run_id,
@@ -1134,15 +975,10 @@ async def run_search(
             item.summary = text[:320] + ("…" if len(text) > 320 else "")
 
     step_summarize = runner.run_step(
-
         "ai_summarize",
-
         lambda: summaries,
-
         ai_invoked=not no_ai,
-
         artifact_name="summaries.json",
-
     )
     eta_tracker.mark_step_completed("ai_summarize", step_summarize.duration_ms)
     if run_id:
@@ -1153,8 +989,6 @@ async def run_search(
             detail="条目摘要完成",
             eta_sec=eta_tracker.remaining_sec(current_phase=next_phase),
         )
-
-
 
     sim_top = int(search_cfg.get("persona_sim_top", 20))
     simulations: list[dict] = []
@@ -1175,19 +1009,12 @@ async def run_search(
         )
 
         step_sim = runner.run_step(
-
             "persona_simulate",
-
             lambda: simulations,
-
             ai_invoked=not no_ai and not no_simulate,
-
             artifact_name="simulations.json",
-
         )
         eta_tracker.mark_step_completed("persona_simulate", step_sim.duration_ms)
-
-
 
     report_path = None
 
@@ -1195,41 +1022,25 @@ async def run_search(
 
     sim_map = {s.get("item_id"): s for s in simulations if s.get("item_id")}
 
-
-
     def _sim_confidence(sim: dict) -> float:
 
         if sim.get("interest") != "interested":
-
             return 0.0
 
         try:
-
             return float(sim.get("confidence") or 0)
 
         except (TypeError, ValueError):
-
             return 0.0
 
-
-
     items.sort(
-
         key=lambda i: (
-
             i.signals.relevance
-
             + _sim_confidence(sim_map.get(i.id, {})) * 0.3
-
             + (0.15 if i.personal.get("already_seen") else 0.0)
-
         ),
-
         reverse=True,
-
     )
-
-
 
     citation_map = assign_citation_ids(items)
 
@@ -1277,53 +1088,28 @@ async def run_search(
     )
 
     return {
-
         "run_id": ctx.run_id,
-
         "items": items,
-
         "report": report_text,
-
         "report_path": str(report_path) if report_path else None,
-
         "simulations": simulations,
-
         "run_dir": str(ctx.ensure_run_dir()),
-
         "source_errors": source_errors,
-
         "source_warnings": source_warnings,
-
         "intel_stats": intel_stats,
-
         "citation_map": citation_map,
-
         "citation_urls": build_citation_urls(items),
-
         "query_analysis": query_analysis,
-
         "source_plan": query_analysis.get("source_plan") or {},
-
         "source_routing": query_analysis.get("source_routing") or {},
-
         "collect_sources": collect_sources,
-
         "active_sources": collect_sources,
-
         "discover_meta": discover_meta,
-
         "queries_used": queries_used,
-
         "foreign_queries": foreign_queries,
-
         "queries_by_source": queries_by_source,
-
         "no_ai": no_ai,
-
     }
-
-
-
 
 
 async def preview_query_expansion(
@@ -1367,5 +1153,3 @@ async def preview_query_expansion(
         profile=profile,
         source_overrides=source_overrides,
     )
-
-

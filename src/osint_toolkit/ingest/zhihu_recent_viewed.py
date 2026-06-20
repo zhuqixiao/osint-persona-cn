@@ -7,7 +7,6 @@ import re
 from typing import Any
 
 from osint_toolkit.http.client import HttpClient
-from osint_toolkit.ingest.zhihu_activities import iter_api_data_items
 from osint_toolkit.utils.zhihu_urls import content_url_from_target
 
 _RECENT_VIEWED_URL = "https://www.zhihu.com/recent-viewed"

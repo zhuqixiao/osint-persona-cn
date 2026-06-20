@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import httpx
 import pytest
 
 from osint_toolkit.collectors.serp.engine import SerpEngine

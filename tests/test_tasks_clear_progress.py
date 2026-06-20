@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
 from osint_toolkit.pipeline.progress import get_progress, init_progress

@@ -13,9 +13,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from osint_toolkit.auth.cookie_sync import cookies_for_playwright, validate_domain_cookie
 from osint_toolkit.ingest.extension_events import parse_api_capture
 from osint_toolkit.storage.sqlite import connect
-from osint_toolkit.auth.cookie_sync import cookies_for_playwright, validate_domain_cookie
 from osint_toolkit.utils.config import get_browser_sync_config, get_cookie_sync_config
 
 logger = logging.getLogger(__name__)
@@ -63,11 +63,11 @@ def build_sync_pages(
     bilibili_mid: str = "",
     zhihu_token: str = "",
 ) -> list[dict[str, str]]:
-    from osint_toolkit.ingest.zhihu_endpoint_registry import ZHihu_PROBE_PAGES
+    from osint_toolkit.ingest.zhihu_endpoint_registry import ZHIHU_PROBE_PAGES
 
     pages: list[dict[str, str]] = []
     if "zhihu" in platforms and zhihu_token:
-        for spec in ZHihu_PROBE_PAGES:
+        for spec in ZHIHU_PROBE_PAGES:
             pages.append(
                 {
                     "label": spec["label"],
@@ -288,6 +288,9 @@ async def _cdp_reachable(cdp_url: str) -> bool:
     try:
         import httpx
 
+        from osint_toolkit.http.ssrf import assert_loopback_url
+
+        assert_loopback_url(cdp_url)
         async with httpx.AsyncClient(timeout=2.0) as client:
             resp = await client.get(f"{cdp_url.rstrip('/')}/json/version")
             return resp.status_code == 200

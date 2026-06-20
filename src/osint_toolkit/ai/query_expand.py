@@ -15,15 +15,16 @@ from osint_toolkit.ai.alias_filter import (
     is_valid_search_term,
     product_variants,
 )
-from osint_toolkit.ai.query_analyze import analyze_query
-from osint_toolkit.collectors.source_routing import apply_source_routing, compute_source_scores
-from osint_toolkit.collectors.source_resolve import blend_rule_and_ai_scores, detect_cryptic_from_scores
-from osint_toolkit.ai.source_planner import detect_cryptic_query, plan_sources
 from osint_toolkit.ai.foreign_expand import expand_foreign_terms
-from osint_toolkit.collectors.queries_by_source import build_queries_by_source, is_primarily_latin
+from osint_toolkit.ai.query_analyze import analyze_query
+from osint_toolkit.ai.source_planner import detect_cryptic_query, plan_sources
 from osint_toolkit.auth.paths import get_data_dir
+from osint_toolkit.collectors.queries_by_source import build_queries_by_source, is_primarily_latin
+from osint_toolkit.collectors.source_resolve import blend_rule_and_ai_scores, detect_cryptic_from_scores
+from osint_toolkit.collectors.source_routing import apply_source_routing, compute_source_scores
 from osint_toolkit.persona.context import PersonaContext
 from osint_toolkit.utils.config import load_config
+
 
 def get_search_config() -> dict[str, Any]:
     return dict(load_config().get("search", {}))

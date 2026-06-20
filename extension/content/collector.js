@@ -10,6 +10,7 @@
 
     window.addEventListener("message", (event) => {
       if (event.source !== window || !event.data || event.data.source !== "osint-capture") return;
+      if (event.origin !== location.origin) return;
       chrome.runtime.sendMessage({
         kind: "api_capture",
         url: event.data.url,

@@ -12,8 +12,8 @@ from osint_toolkit.http.client import HttpClient
 from osint_toolkit.ingest import account_sync_state as sync_state
 from osint_toolkit.ingest.zhihu_activities import iter_api_data_items
 from osint_toolkit.ingest.zhihu_endpoint_registry import (
-    LayerStatus,
     PUBLISH_ENDPOINTS,
+    LayerStatus,
     layer_status_from_count,
     paginate_member_api,
 )
@@ -379,8 +379,8 @@ async def ingest_favorites(limit: int = 500) -> list[dict]:
             if paging.get("is_end") or len(collections) < 20:
                 break
             offset += 20
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("zhihu_account: ingest_favorites failed: %s", exc)
     fresh = sync_state.filter_new_by_urls(results, seen_urls)
     for entry in fresh:
         url = str(entry.get("url") or "")

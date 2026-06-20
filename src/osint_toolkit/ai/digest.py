@@ -24,7 +24,10 @@ def _today_events(*, limit: int = 80) -> list[dict]:
         conn.close()
     ranked = []
     for row in rows:
-        data = json.loads(row["data_json"])
+        try:
+            data = json.loads(row["data_json"])
+        except (json.JSONDecodeError, TypeError):
+            continue
         ranked.append(
             {
                 "event_type": row["event_type"],

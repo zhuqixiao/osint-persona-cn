@@ -161,7 +161,7 @@ class ExtensionEventItem(BaseModel):
 
 
 class ExtensionEventsRequest(BaseModel):
-    events: list[dict[str, Any]] = Field(default_factory=list)
+    events: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
     version: str = ""
 
 

@@ -2,6 +2,7 @@
 
 import pytest
 
+from osint_toolkit.models.intel_item import IntelItem
 from osint_toolkit.pipeline.job_progress import FULL_SYNC_PHASES, init_full_sync_progress
 from osint_toolkit.pipeline.progress import (
     JobCancelled,
@@ -13,7 +14,6 @@ from osint_toolkit.pipeline.progress import (
     update_progress,
 )
 from osint_toolkit.services.search import _collect_target_url, _preview_item, _source_label
-from osint_toolkit.models.intel_item import IntelItem
 
 
 def test_search_progress_updates():

@@ -24,7 +24,7 @@ def _zhihu_people_url(member: dict) -> str:
     return ""
 
 
-from osint_toolkit.utils.zhihu_urls import content_url_from_target, public_zhihu_url
+from osint_toolkit.utils.zhihu_urls import content_url_from_target
 
 
 def _zhihu_content_url(target: dict, item: dict | None = None) -> str:

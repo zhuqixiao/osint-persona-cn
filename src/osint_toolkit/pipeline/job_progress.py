@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from osint_toolkit.pipeline.progress import check_cancelled, update_progress
 
@@ -33,7 +34,6 @@ def init_full_sync_progress(job_id: str) -> None:
 
 
 def make_full_sync_callbacks(job_id: str | None) -> tuple[Callable[..., None], Callable[[str], None]]:
-    started = time.perf_counter()
     step_started = time.perf_counter()
     step_durations: list[float] = []
     phase_index = {name: idx for idx, (name, _) in enumerate(FULL_SYNC_PHASES)}

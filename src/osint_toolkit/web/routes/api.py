@@ -9,7 +9,16 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 
-from osint_toolkit.auth.paths import get_data_dir
+from osint_toolkit.research.tree import (
+    add_node,
+    attach_search_node,
+    create_tree,
+    find_search_node_id_for_run,
+    list_trees,
+    load_tree,
+    patch_node,
+    tree_to_markmap,
+)
 from osint_toolkit.services import (
     ai_config,
     auth,
@@ -21,17 +30,29 @@ from osint_toolkit.services import (
     feedback,
     health,
     ingest,
+    ingest_capabilities,
     knowledge,
     persona,
+    research_ai,
     runs,
     save,
     secrets,
     setup,
     tools,
 )
-from osint_toolkit.services import ingest_capabilities
 from osint_toolkit.services import search as search_service
+from osint_toolkit.services import watch as watch_service
 from osint_toolkit.services.ask import ask_question
+from osint_toolkit.services.run_session import read_manifest, read_progress_disk
+from osint_toolkit.services.search_fork import build_fork_search_params
+from osint_toolkit.utils.config import load_sync_config
+from osint_toolkit.utils.safe_path import (
+    PathSecurityError,
+    assert_domain,
+    assert_prompt_name,
+    assert_safe_id,
+    coerce_run_dir_id,
+)
 from osint_toolkit.web.schemas import (
     AskRequest,
     BrowserSyncRequest,
@@ -39,33 +60,25 @@ from osint_toolkit.web.schemas import (
     ExtensionEventsRequest,
     ExtensionPingRequest,
     FeedbackRequest,
+    ImportCookiesRequest,
     IngestAicuJsonRequest,
     IngestBrowserRequest,
     PersonaRollbackRequest,
     PromptUpdate,
+    ResearchInsightRequest,
+    ResearchNodeCreate,
+    ResearchNodePatch,
+    ResearchSuggestRequest,
+    ResearchTreeCreate,
+    RunsBatchDeleteRequest,
+    RunsCleanupRequest,
     SaveRequest,
     SaveRunItemsRequest,
     SearchExpandRequest,
     SearchRequest,
-    ImportCookiesRequest,
     SecretSaveRequest,
-    TunablePatchRequest,
     SyncCookiesRequest,
-    ResearchTreeCreate,
-    ResearchNodeCreate,
-    ResearchNodePatch,
-    ResearchSuggestRequest,
-    RunsCleanupRequest,
-    RunsBatchDeleteRequest,
-    ResearchInsightRequest,
-)
-from osint_toolkit.utils.config import load_sync_config
-from osint_toolkit.utils.safe_path import (
-    PathSecurityError,
-    assert_prompt_name,
-    assert_run_id,
-    assert_safe_id,
-    coerce_run_dir_id,
+    TunablePatchRequest,
 )
 from osint_toolkit.web.tasks import (
     SearchQueueFullError,
@@ -81,21 +94,6 @@ from osint_toolkit.web.tasks import (
     start_full_sync_job,
     start_playwright_install_job,
     start_search_job,
-)
-from osint_toolkit.services.search_fork import build_fork_search_params
-from osint_toolkit.services.run_session import read_manifest, read_progress_disk
-from osint_toolkit.services import research_ai
-from osint_toolkit.services import watch as watch_service
-from osint_toolkit.research.tree import (
-    add_node,
-    attach_search_node,
-    create_tree,
-    find_search_node_id_for_run,
-    list_trees,
-    load_tree,
-    patch_node,
-    tree_to_markmap,
-    update_search_node_status,
 )
 
 router = APIRouter(prefix="/api")
@@ -496,13 +494,17 @@ async def api_search_events(run_id: str, request: Request) -> StreamingResponse:
 
 @router.post("/save")
 async def api_save(body: SaveRequest) -> dict[str, Any]:
-    result = await save.save_url(body.url, with_comments=body.with_comments, no_ai=body.no_ai)
+    try:
+        result = await save.save_url(body.url, with_comments=body.with_comments, no_ai=body.no_ai)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"item": result["item"].to_dict(), "card_path": result["card_path"]}
 
 
 @router.get("/knowledge/recall")
 async def api_recall(q: str, limit: int = 20) -> dict[str, Any]:
-    items = knowledge.recall(q, limit=limit)
+    limit = max(1, min(limit, 200))
+    items = await asyncio.to_thread(knowledge.recall, q, limit=limit)
     return {"items": [i.to_dict() for i in items], "count": len(items)}
 
 
@@ -513,11 +515,15 @@ async def api_knowledge_items(
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
-    items = knowledge.list_items(query=q, source=source, limit=limit, offset=offset)
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    items = await asyncio.to_thread(
+        knowledge.list_items, query=q, source=source, limit=limit, offset=offset
+    )
     return {
         "items": [i.to_dict() for i in items],
         "count": len(items),
-        "total": knowledge.count_items(source=source),
+        "total": await asyncio.to_thread(knowledge.count_items, source=source),
     }
 
 
@@ -578,7 +584,10 @@ async def api_feedback_recent(target_ids: str = "") -> dict[str, Any]:
 
 @router.get("/digest/daily")
 async def api_digest_daily(ai: bool = False, no_ai: bool = False, hot_list: bool = True) -> dict[str, str]:
-    return {"content": digest.get_daily_digest(use_ai=ai, no_ai=no_ai, include_hot_list=hot_list)}
+    content = await asyncio.to_thread(
+        digest.get_daily_digest, use_ai=ai, no_ai=no_ai, include_hot_list=hot_list
+    )
+    return {"content": content}
 
 
 @router.get("/digest/history")
@@ -603,7 +612,7 @@ async def api_digest_reports(limit: int = 50) -> dict[str, Any]:
 
 @router.post("/ingest/browser")
 async def api_ingest_browser(body: IngestBrowserRequest) -> dict[str, Any]:
-    return ingest.ingest_browser(since_days=body.since_days)
+    return await asyncio.to_thread(ingest.ingest_browser, since_days=body.since_days)
 
 
 @router.post("/ingest/bilibili")
@@ -849,12 +858,12 @@ async def api_events_recent(
 
 @router.post("/persona/build")
 async def api_persona_build(review: bool = False) -> dict[str, Any]:
-    return persona.build_persona(review=review)
+    return await asyncio.to_thread(persona.build_persona, review=review)
 
 
 @router.get("/persona")
 async def api_persona() -> dict[str, Any]:
-    return persona.show_persona()
+    return await asyncio.to_thread(persona.show_persona)
 
 
 @router.get("/persona/status")
@@ -987,12 +996,12 @@ async def api_run_delete(run_id: str) -> dict[str, Any]:
 
 @router.get("/ai/directives")
 async def api_directives_get() -> dict[str, Any]:
-    return ai_config.get_directives()
+    return await asyncio.to_thread(ai_config.get_directives)
 
 
 @router.put("/ai/directives")
 async def api_directives_put(body: DirectivesUpdate) -> dict[str, Any]:
-    return ai_config.update_directives(body.data)
+    return await asyncio.to_thread(ai_config.update_directives, body.data)
 
 
 @router.get("/ai/prompts")
@@ -1033,7 +1042,7 @@ async def api_config_secrets_list() -> dict[str, Any]:
 @router.post("/config/secrets/{secret_id}")
 async def api_config_secrets_save(secret_id: str, body: SecretSaveRequest) -> dict[str, Any]:
     try:
-        return secrets.save_api_secret(secret_id, body.value)
+        return await asyncio.to_thread(secrets.save_api_secret, secret_id, body.value)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1065,9 +1074,8 @@ async def api_config_tunables_patch(body: TunablePatchRequest) -> dict[str, Any]
 
 @router.post("/auth/sync-cookies")
 async def api_sync_cookies(body: SyncCookiesRequest) -> dict[str, Any]:
-    result = auth.sync_cookies(
-        browser=body.browser,
-        domains=body.domains or None,
+    result = await asyncio.to_thread(
+        auth.sync_cookies, browser=body.browser, domains=body.domains or None
     )
     return {
         "browser": result.browser,
@@ -1081,7 +1089,8 @@ async def api_sync_cookies(body: SyncCookiesRequest) -> dict[str, Any]:
 @router.post("/auth/import-cookies")
 async def api_import_cookies(body: ImportCookiesRequest) -> dict[str, Any]:
     """从浏览器扩展写入 Cookie（推荐 Edge 130+，无需管理员）。"""
-    result = auth.import_cookies(
+    result = await asyncio.to_thread(
+        auth.import_cookies,
         headers_by_domain=body.domains,
         browser=body.browser or "extension",
     )
@@ -1210,4 +1219,8 @@ async def api_auth_domains() -> dict[str, Any]:
 
 @router.get("/tools/domain/{domain}")
 async def api_domain_lookup(domain: str) -> dict[str, Any]:
-    return tools.lookup_domain(domain)
+    try:
+        assert_domain(domain)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await asyncio.to_thread(tools.lookup_domain, domain)
