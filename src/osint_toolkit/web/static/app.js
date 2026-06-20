@@ -4508,19 +4508,15 @@ function renderSearchTimeline(result) {
 }
 
 function formatAiParticipationSummary(result) {
-  const qa = result.query_analysis || {};
-  const plan = result.source_plan || qa.source_plan || {};
-  const noAi = result.no_ai === true;
+  const noAi = result.no_ai === true || result.manifest?.no_ai === true;
   if (noAi) return "AI：已跳过（勾选「跳过 AI」）";
-  const steps = [];
-  const planAi = plan.ai_invoked;
-  if (planAi === true) steps.push("查询扩展");
-  else if (planAi === false) steps.push("查询扩展（规则回退）");
-  if (plan.reasoning_chain?.length) steps.push("信源规划");
-  if (result.report) steps.push("情报报告");
-  if (result.simulations?.length) steps.push("画像模拟");
-  if (!steps.length) return "AI：已启用";
-  return `AI 已介入：${steps.join("、")}`;
+  const manifestSteps = result.manifest?.steps || [];
+  const aiSteps = manifestSteps
+    .filter((s) => s.ai_invoked === true)
+    .map((s) => formatStepLabel(s.step))
+    .filter(Boolean);
+  if (aiSteps.length) return `AI 参与：${aiSteps.join(" → ")}`;
+  return "AI：已启用";
 }
 
 function renderSearchMetaBanner(result) {
