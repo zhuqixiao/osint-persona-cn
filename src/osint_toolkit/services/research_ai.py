@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 from osint_toolkit.ai.client import DeepSeekClient
@@ -12,6 +13,10 @@ from osint_toolkit.feedback.store import FeedbackStore
 from osint_toolkit.persona.context import maybe_load_persona_context
 from osint_toolkit.research.tree import add_node, load_tree, save_tree
 from osint_toolkit.services.runs import show_run
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 def _useful_titles_for_run(run_id: str) -> list[str]:
@@ -177,11 +182,9 @@ def suggest_queries(*, run_id: str | None = None, tree_id: str | None = None) ->
         try:
             tree = load_tree(tree_id)
             tree.setdefault("meta", {})["suggested_queries"] = queries
-            from datetime import UTC, datetime
-
-            tree["meta"]["suggested_queries_at"] = datetime.now(UTC).isoformat()
+            tree["meta"]["suggested_queries_at"] = _now_iso()
             save_tree(tree)
-        except (FileNotFoundError, Exception):  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             pass
     return {"ok": True, "queries": queries}
 

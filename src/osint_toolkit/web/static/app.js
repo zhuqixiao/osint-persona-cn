@@ -1905,6 +1905,12 @@ function appendResultCardInteractions(container, runId, items) {
     btn.dataset.bound = "1";
     btn.addEventListener("click", () => saveFromCard(btn.dataset.save));
   });
+  container.querySelectorAll("[data-sim-override]").forEach((btn) => {
+    if (btn.dataset.bound === "1") return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", () =>
+      overrideSimVerdict(btn.dataset.id, btn.dataset.run, btn.dataset.simOverride, btn));
+  });
 }
 
 function mountIncrementalResultsList(container, items, simMap, runId, feedbackMap) {
@@ -3280,17 +3286,19 @@ function formatSimulation(sim, itemId, runId, feedbackMap = {}) {
     return `<div class="sim-block"><p class="muted">未能结构化，请重新构建画像或关闭模拟</p></div>`;
   }
   const interest = sim.interest || "neutral";
-  const conf = sim.confidence != null ? ` · ${Math.round(Number(sim.confidence) * 100)}%` : "";
+  const conf = sim.confidence != null && !sim.overridden
+    ? ` · ${Math.round(Number(sim.confidence) * 100)}%` : "";
   const verdict = sim.verdict ? escapeHtml(sim.verdict) : interest;
   const reason = sim.reason ? `<p class="sim-reason">${escapeHtml(sim.reason)}</p>` : "";
-  const simRating = feedbackMap[`simulation:${itemId}`] || "";
-  const feedback = itemId
-    ? `<div class="sim-feedback">
-        <button class="${feedbackBtnClass(simRating === "useful")}" data-base-label="模拟👍" data-sim-feedback="useful" data-id="${escapeHtml(itemId)}" data-verdict="${escapeHtml(sim.verdict || interest)}">${feedbackLabel("模拟👍", simRating === "useful")}</button>
-        <button class="${feedbackBtnClass(simRating === "noise")}" data-base-label="模拟👎" data-sim-feedback="noise" data-id="${escapeHtml(itemId)}" data-verdict="${escapeHtml(sim.verdict || interest)}">${feedbackLabel("模拟👎", simRating === "noise")}</button>
+  const overridden = sim.overridden ? ` <span class="muted">（已覆盖）</span>` : "";
+  const overrideBtns = itemId && runId
+    ? `<div class="sim-override-btns">
+        <button class="btn btn-sm ${interest === "interested" ? "is-active" : ""}" data-sim-override="interested" data-id="${escapeHtml(itemId)}" data-run="${escapeHtml(runId)}">有价值</button>
+        <button class="btn btn-sm ${interest === "neutral" ? "is-active" : ""}" data-sim-override="neutral" data-id="${escapeHtml(itemId)}" data-run="${escapeHtml(runId)}">不确定</button>
+        <button class="btn btn-sm ${interest === "skip" ? "is-active" : ""}" data-sim-override="skip" data-id="${escapeHtml(itemId)}" data-run="${escapeHtml(runId)}">无价值</button>
       </div>`
     : "";
-  return `<div class="sim-block"><span class="sim-badge sim-${escapeHtml(interest)}">${verdict}${conf}</span>${reason}${feedback}</div>`;
+  return `<div class="sim-block"><span class="sim-badge sim-${escapeHtml(interest)}">${verdict}${conf}</span>${overridden}${reason}${overrideBtns}</div>`;
 }
 
 async function loadSetupWizard() {
@@ -4411,6 +4419,7 @@ async function renderSearchResults(result, resultsEl, reportEl, runId) {
   }
 
   const feedbackMap = await loadFeedbackMap(items.map((i) => i.id));
+  resultsEl._simMap = simMap;
   const loadMore = items.length > RESULTS_RENDER_BATCH
     ? `<div class="results-load-more-wrap mt-1"><button type="button" class="btn btn-sm btn-secondary" data-load-more-results>加载更多</button></div>`
     : "";
@@ -4694,6 +4703,78 @@ async function submitSimFeedback(rating, targetId, simVerdict, runId, btn) {
   } catch (err) {
     btn.classList.add("is-error");
     setTimeout(() => btn.classList.remove("is-error"), 2000);
+  }
+}
+
+async function overrideSimVerdict(targetId, runId, interest, btn) {
+  if (!targetId || !runId || !interest) return;
+  const card = btn.closest(".item-card");
+  const resultsEl = card?.closest("#search-results");
+  const simMap = resultsEl?._simMap || {};
+
+  const labelMap = { interested: "有价值", neutral: "不确定", skip: "无价值" };
+  const label = labelMap[interest] || interest;
+
+  // Optimistic UI update first
+  if (card) {
+    card.querySelectorAll("[data-sim-override]").forEach((b) => {
+      b.classList.toggle("is-active", b.dataset.simOverride === interest);
+    });
+  }
+
+  try {
+    const result = await api("POST", `/api/runs/${encodeURIComponent(runId)}/sim-override`, {
+      item_id: targetId,
+      interest: interest,
+      confidence: 0.0,
+      verdict: "",
+      reason: "",
+    });
+    if (result?.ok) {
+      const sim = simMap[targetId];
+      if (sim) {
+        sim.interest = interest;
+        sim.overridden = true;
+        if (interest === "interested") {
+          sim.verdict = "用户判定为有价值";
+        } else if (interest === "skip") {
+          sim.verdict = "用户判定为无价值";
+        } else {
+          sim.verdict = "用户判定为不确定";
+        }
+        sim.confidence = 0.0;
+        sim.reason = "";
+      }
+      if (card) {
+        const simBlock = card.querySelector(".item-section-sim .item-section-body");
+        if (simBlock) {
+          simBlock.innerHTML = formatSimulation(sim, targetId, runId, {});
+        }
+        const badge = card.querySelector(".sim-badge");
+        if (badge) {
+          badge.className = `sim-badge sim-${interest}`;
+          if (interest === "interested") {
+            badge.textContent = "用户判定为有价值";
+          } else if (interest === "skip") {
+            badge.textContent = "用户判定为无价值";
+          } else {
+            badge.textContent = "用户判定为不确定";
+          }
+        }
+      }
+      showToast(`已覆盖 AI 判定 → ${label}`, "success");
+    } else {
+      showToast(result?.detail || "覆盖失败", "error");
+    }
+  } catch (err) {
+    // Revert optimistic update on error
+    if (card) {
+      const sim = simMap[targetId];
+      card.querySelectorAll("[data-sim-override]").forEach((b) => {
+        b.classList.toggle("is-active", sim && b.dataset.simOverride === sim.interest);
+      });
+    }
+    showToast(err.message || "覆盖失败", "error");
   }
 }
 

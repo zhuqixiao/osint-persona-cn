@@ -9,9 +9,9 @@ from typing import Any
 
 from osint_toolkit.models.intel_item import IntelItem
 from osint_toolkit.persona.behavior_signals import score_event
-from osint_toolkit.storage.knowledge import recall as _recall
 from osint_toolkit.storage.knowledge import delete_item as _delete_item
 from osint_toolkit.storage.knowledge import delete_items as _delete_items
+from osint_toolkit.storage.knowledge import recall as _recall
 from osint_toolkit.storage.sqlite import connect
 
 
@@ -36,12 +36,14 @@ def recall(query: str, limit: int = 20) -> list[IntelItem]:
         return items
     seen = {i.url for i in items if i.url}
     conn = connect()
-    rows = conn.execute(
-        "SELECT event_type, data_json FROM events "
-        "WHERE data_json LIKE ? ORDER BY id DESC LIMIT ?",
-        (f"%{q}%", remaining * 5),
-    ).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute(
+            "SELECT event_type, data_json FROM events "
+            "WHERE data_json LIKE ? ORDER BY id DESC LIMIT ?",
+            (f"%{q}%", remaining * 5),
+        ).fetchall()
+    finally:
+        conn.close()
     for row in rows:
         data = json.loads(row["data_json"])
         if score_event(str(row["event_type"]), data) < 12:
@@ -122,8 +124,10 @@ def delete_items(item_ids: list[str]) -> int:
 def list_topics(limit: int = 50) -> list[dict[str, Any]]:
     """聚合所有知识库条目的 topics 字段，按出现频率排序返回。"""
     conn = connect()
-    rows = conn.execute("SELECT data_json FROM intel_items").fetchall()
-    conn.close()
+    try:
+        rows = conn.execute("SELECT data_json FROM intel_items").fetchall()
+    finally:
+        conn.close()
     counter: dict[str, int] = {}
     for row in rows:
         try:

@@ -21,21 +21,24 @@ class BilibiliCollector(BaseCollector):
     _OID_CACHE_MAX = 2000
     _oid_cache: OrderedDict[str, str] = OrderedDict()
     _auth_warning_shown: bool = False
+    _auth_failed: bool = False
  
     def __init__(self, client: HttpClient | None = None) -> None:
         self.client = client or HttpClient()
+        type(self)._auth_failed = False
+        type(self)._auth_warning_shown = False
 
     @classmethod
     def _check_reply_auth(cls, code: int, message: str) -> None:
-        if cls._auth_warning_shown:
-            return
         if code in (-101, -400, 12002) or any(kw in message for kw in ("权限", "denied", "forbidden", "login")):
-            logger.warning(
-                "Bilibili cookie may be expired (code=%s): %s. "
-                "Comments will be unavailable until cookies are re-synced at /ingest.",
-                code, message,
-            )
-            cls._auth_warning_shown = True
+            cls._auth_failed = True
+            if not cls._auth_warning_shown:
+                logger.warning(
+                    "Bilibili cookie may be expired (code=%s): %s. "
+                    "Comments will be unavailable until cookies are re-synced at /ingest.",
+                    code, message,
+                )
+                cls._auth_warning_shown = True
 
     def _search_handlers(self) -> dict[str, Any]:
         return {
@@ -562,6 +565,8 @@ class BilibiliCollector(BaseCollector):
     async def _fetch_reply_page(
         self, oid: str, next_offset: int | str, comment_type: int = 1, mode: int = 3
     ) -> tuple[list[dict], int | str]:
+        if self._auth_failed:
+            return [], 0
         base = "https://api.bilibili.com/x/v2/reply/wbi/main"
         params: dict[str, Any] = {
             "type": comment_type,
@@ -586,7 +591,10 @@ class BilibiliCollector(BaseCollector):
             next_off = cursor.get("pagination_reply", {}).get("next_offset") or 0
             return replies, next_off
         except Exception as exc:  # noqa: BLE001
-            logger.warning("bilibili wbi reply failed, fallback to legacy: %s", exc)
+            if not self._auth_failed:
+                logger.warning("bilibili wbi reply failed, fallback to legacy: %s", exc)
+        if self._auth_failed:
+            return [], 0
         api = (
             f"https://api.bilibili.com/x/v2/reply/main?type={comment_type}&oid={oid}&mode=3&plat=1"
         )
@@ -597,7 +605,8 @@ class BilibiliCollector(BaseCollector):
             if legacy_code not in (0, None):
                 legacy_msg = data.get("message") or "legacy reply failed"
                 self._check_reply_auth(legacy_code or 0, legacy_msg)
-                logger.warning("bilibili legacy reply also failed (code=%s): %s", legacy_code, legacy_msg)
+                if not self._auth_failed:
+                    logger.warning("bilibili legacy reply also failed (code=%s): %s", legacy_code, legacy_msg)
                 return [], 0
             payload = data.get("data") or {}
             cursor = payload.get("cursor") or {}

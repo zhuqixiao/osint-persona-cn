@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from osint_toolkit.feedback.apply import apply_step_feedback
@@ -57,6 +56,10 @@ def override_simulation(
     if not run_path.exists():
         return {"ok": False, "detail": "run 目录不存在"}
 
+    verdict_map = {"interested": "用户判定为有价值", "neutral": "用户判定为不确定", "skip": "用户判定为无价值"}
+    if not verdict:
+        verdict = verdict_map.get(interest, f"用户判定为 {interest}")
+
     updated_sim = False
     updated_rel = False
 
@@ -69,10 +72,11 @@ def override_simulation(
                 if isinstance(s, dict) and s.get("item_id") == item_id:
                     s["interest"] = interest
                     s["confidence"] = confidence
-                    if verdict:
-                        s["verdict"] = verdict
+                    s["verdict"] = verdict
                     if reason:
                         s["reason"] = reason
+                    else:
+                        s.pop("reason", None)
                     break
             sim_path.write_text(json.dumps(sims, ensure_ascii=False, indent=2), encoding="utf-8")
             updated_sim = True

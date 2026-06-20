@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from typing import Any
@@ -22,7 +23,7 @@ _DEFAULT_FEATURES: dict[str, bool] = {
     "global_search": False,
 }
 
-_rate_lock = asyncio.Lock()
+_rate_cond = asyncio.Condition()
 _next_request_at: float = 0.0
 
 
@@ -174,27 +175,31 @@ def _is_rate_limit_payload(payload: dict[str, Any]) -> bool:
 
 
 async def _await_rate_slot() -> None:
-    """全局限流：避免多任务/多查询并行时触发开放平台秒级 QPS 上限。"""
+    """全局限流：避免多任务/多查询并行时触发开放平台秒级 QPS 上限。
+    使用 Condition 而非 Lock，使得限流后退时能广播通知等待中的并发任务延长冷却。"""
     global _next_request_at
     interval = float(_openapi_cfg().get("min_request_interval_sec", 1.0))
     if interval <= 0:
         return
-    async with _rate_lock:
-        now = time.monotonic()
-        wait = _next_request_at - now
-        if wait > 0:
-            await asyncio.sleep(wait)
+    async with _rate_cond:
+        while True:
             now = time.monotonic()
-        _next_request_at = now + interval
+            wait = _next_request_at - now
+            if wait <= 0:
+                break
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(_rate_cond.wait(), timeout=wait)
+        _next_request_at = time.monotonic() + interval
 
 
 async def _bump_rate_limit_backoff() -> None:
-    """触发限流后推后 _next_request_at，让等待中的并发任务自动冷却更久。"""
+    """触发限流后推后 _next_request_at 并广播通知等待中的并发任务重新计算等待时间。"""
     global _next_request_at
-    async with _rate_lock:
+    async with _rate_cond:
         now = time.monotonic()
         cool_sec = float(_openapi_cfg().get("min_request_interval_sec", 1.0)) * 3
         _next_request_at = max(_next_request_at, now + cool_sec)
+        _rate_cond.notify_all()
 
 
 def _reset_rate_limiter_for_tests() -> None:
