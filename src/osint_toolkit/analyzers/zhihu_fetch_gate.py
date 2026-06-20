@@ -102,13 +102,13 @@ def heuristic_zhihu_deep_plan(item: IntelItem, search_cfg: dict[str, Any]) -> di
             fetch_comments = True
             reasons.append("相关度较高默认加深评论")
 
-    if not fetch_body and not fetch_comments and rel >= 0.2:
+    if not fetch_body and not fetch_comments and rel >= 0.12:
         if _openapi_via(item) and content_len <= max_snippet:
             fetch_body = True
             reasons.append("放宽：openapi条目默认尝试补全文")
         elif item_type in {"answer", "article"}:
             fetch_comments = True
-            reasons.append("放宽：高配额条目默认尝试评论")
+            reasons.append("放宽：comment_mine条目默认尝试评论")
 
     return {
         "fetch_body": fetch_body,

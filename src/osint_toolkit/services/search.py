@@ -413,7 +413,16 @@ async def _mine_comments(
         collector = collectors.get(src)
         if collector is None or not hasattr(collector, "fetch_comments"):
             continue
-        for item in by_source[src][:quota]:
+        valid_items: list[IntelItem] = []
+        for item in by_source[src]:
+            if src == "zhihu" and item.type not in {"answer", "article", "question"}:
+                continue
+            if src == "bilibili" and item.type not in {"video", "article", "snippet"}:
+                continue
+            valid_items.append(item)
+            if len(valid_items) >= quota:
+                break
+        for item in valid_items:
             if src == "bilibili" and item.type in {"video", "snippet"}:
                 try:
                     if item.type == "snippet" and "BV" in item.url:
