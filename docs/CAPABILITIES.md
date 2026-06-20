@@ -95,8 +95,8 @@ search:
 |------|------|------|
 | Edge 浏览历史 | 多站访问记录 | `osint ingest browser` / 完整同步 |
 | B站 Cookie API | 观看历史、收藏、点赞、关注 | accounts-sync |
-| 知乎 Cookie API | 收藏、关注、我发布的回答/文章/想法、Edge 浏览历史 | accounts-sync |
-| 浏览器扩展 | 页面访问、停留、API 拦截（含知乎赞同）、右键收录、高停留自动入库 | `POST /api/extension/events` |
+| 知乎 Cookie API | 收藏、关注、我发布的回答/文章/想法；**点赞/活动历史**（`/api/v3/moments/{token}/activities` 反向发现）；**浏览历史**（`/api/v4/unify-consumption/read_history` 反向发现，Edge 历史作为补充） | accounts-sync |
+| 浏览器扩展 | 页面访问、停留、API 拦截（含知乎赞同/收藏/关注 POST 拦截）、右键收录、高停留自动入库 | `POST /api/extension/events` |
 | Playwright 补洞 | **仅 B 站**空间点赞页等 | browser-sync（知乎自动补洞已停用，见 [ZHIHU_PERSONA.md](ZHIHU_PERSONA.md)） |
 | AICU（可选） | 本账号 B站 **发过** 的评论历史 | 需 probe 通过且显式开启 |
 
