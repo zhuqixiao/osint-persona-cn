@@ -4508,6 +4508,8 @@ function renderSearchTimeline(result) {
   body.innerHTML = parts.join("");
 }
 
+let _aiStepsSeq = 0;
+
 function formatAiParticipationSummary(result) {
   const noAi = result.no_ai === true || result.manifest?.no_ai === true;
   if (noAi) return `<span class="search-meta-ai">AI：已跳过（勾选「跳过 AI」）</span>`;
@@ -4526,7 +4528,7 @@ function formatAiParticipationSummary(result) {
     })
     .join("");
 
-  const uid = "ai-steps-" + Math.random().toString(36).slice(2, 8);
+  const uid = "ai-steps-" + (++_aiStepsSeq);
   return `
     <span class="search-meta-ai">
       <button type="button" class="ai-steps-toggle" data-ai-steps-target="${uid}">

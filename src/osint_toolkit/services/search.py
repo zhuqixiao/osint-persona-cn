@@ -835,6 +835,10 @@ async def run_search(
                             for item in group:
                                 for w in item.personal.pop("collector_warnings", []) or []:
                                     source_warnings.append({"source": source_name, "warning": w, "query": q})
+                                matched = item.personal.get("matched_queries") or []
+                                if q not in matched:
+                                    matched.append(q)
+                                item.personal["matched_queries"] = matched
                             async with items_lock:
                                 shared_items.extend(group)
                 for task in pending:

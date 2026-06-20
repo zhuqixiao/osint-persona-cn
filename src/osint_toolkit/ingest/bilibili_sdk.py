@@ -875,19 +875,37 @@ def _subtitle_likely_wrong_track(subtitle_text: str, video_title: str) -> bool:
         return False
     if not video_title:
         return False
-    keywords = [w for w in video_title.split() if len(w) >= 2]
+    keywords = _title_keywords(video_title)
     if not keywords:
         return False
     hits = sum(1 for kw in keywords if kw in subtitle_text)
     if hits == 0 and len(subtitle_text) > 500:
         logger.warning("bilibili subtitle appears to be wrong track: title keywords not found in subtitle text")
         return True
-    if len(subtitle_text) > 800:
-        hit_rate = hits / len(keywords)
-        if hit_rate < 0.15 and hits <= 1:
-            logger.warning("bilibili subtitle may be wrong track: low keyword density (%.2f)", hit_rate)
-            return True
+    if len(subtitle_text) > 800 and hits <= len(keywords) * 0.15 and hits <= 1:
+        logger.warning("bilibili subtitle may be wrong track: low keyword density (hits=%d/%d)", hits, len(keywords))
+        return True
     return False
+
+
+def _title_keywords(title: str) -> list[str]:
+    """从标题提取可用于匹配的关键词列表，兼容中文和英文。"""
+    import re
+
+    words: list[str] = []
+    raw = title.replace("|", " ").replace("，", " ").replace("：", " ").replace("丨", " ")
+    english_tokens = re.split(r"\s+", raw)
+    for tok in english_tokens:
+        tok = tok.strip("-_+#.").strip()
+        if len(tok) >= 2 and re.search(r"[a-zA-Z]", tok):
+            words.append(tok)
+        elif len(tok) >= 2 and re.search(r"[\u4e00-\u9fff]", tok):
+            for i in range(len(tok) - 1):
+                chunk = tok[i : i + 2]
+                clean = chunk.strip()
+                if clean not in words:
+                    words.append(clean)
+    return words[:20]
 
 
 async def enrich_video_item(item) -> None:
