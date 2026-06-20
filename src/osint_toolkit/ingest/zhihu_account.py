@@ -398,7 +398,16 @@ async def _ingest_browsing_via_api(limit: int = 500) -> tuple[list[dict], dict[s
             if offset > 1000:
                 break
     except Exception as exc:  # noqa: BLE001
-        logger.warning("zhihu read_history API failed: %s", exc)
+        logger.warning("zhihu read_history API failed (partial %d items): %s", len(results), exc)
+        if results:
+            fresh = sync_state.filter_new_by_urls(results, seen_urls)
+            if fresh:
+                log_events_batch([
+                    ("zhihu_browse", e, f"zhihu_browse|{str(e.get('url') or '')}")
+                    for e in fresh
+                ])
+            _persist_zhihu(browsing=results)
+            return fresh, {"source": "read_history_api_partial", "error": str(exc), "fetched": len(results)}
         return [], {"source": "error", "error": str(exc)}
     if not results:
         return [], {"source": "empty"}
@@ -417,7 +426,7 @@ def _parse_read_history_item(item: dict[str, Any]) -> dict | None:
     """解析 /api/v4/unify-consumption/read_history 返回的单条记录。
 
     数据结构：{card_type: "single_card", data: {header, content, action, extra, matrix}}
-    - action.url: 内容 URL（如 question/.../answer/...）
+    - action.url: 内容 URL（如 question/.../answer/...，也可能是相对路径）
     - header.title: 标题
     - content.summary: 摘要
     - content.author_name: 作者
@@ -428,8 +437,12 @@ def _parse_read_history_item(item: dict[str, Any]) -> dict | None:
     if not isinstance(inner, dict):
         return None
     action = inner.get("action") or {}
-    url = str(action.get("url") or "")
-    if not url.startswith("http"):
+    url = str(action.get("url") or "").strip()
+    if not url:
+        return None
+    if url.startswith("/"):
+        url = "https://www.zhihu.com" + url
+    elif not url.startswith("http"):
         return None
     header = inner.get("header") or {}
     content = inner.get("content") or {}
@@ -437,6 +450,11 @@ def _parse_read_history_item(item: dict[str, Any]) -> dict | None:
     title = str(header.get("title") or content.get("summary") or "")[:200]
     if not title:
         title = "未命名内容"
+    read_time = extra.get("read_time")
+    if isinstance(read_time, (int, float)):
+        read_time = int(read_time)
+    else:
+        read_time = None
     return {
         "source": "zhihu",
         "title": title,
@@ -445,7 +463,7 @@ def _parse_read_history_item(item: dict[str, Any]) -> dict | None:
         "via": "read_history_api",
         "author": str(content.get("author_name") or ""),
         "content_type": str(extra.get("content_type") or ""),
-        "read_time": extra.get("read_time"),
+        "read_time": read_time,
     }
 
 

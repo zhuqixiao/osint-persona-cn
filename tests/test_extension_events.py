@@ -303,3 +303,44 @@ def test_extension_ping(client, tmp_path, monkeypatch):
     r = client.post("/api/extension/ping", json={"version": "0.1.0", "enabled": True})
     assert r.status_code == 200
     assert r.json()["ok"] is True
+
+
+def test_parse_read_history_item_relative_url():
+    """_parse_read_history_item handles relative URLs and normalizes read_time."""
+    from osint_toolkit.ingest.zhihu_account import _parse_read_history_item
+
+    item = {
+        "card_type": "single_card",
+        "data": {
+            "header": {"title": "测试标题"},
+            "content": {"author_name": "作者", "summary": "摘要"},
+            "action": {"url": "/question/789/answer/123"},
+            "extra": {"content_type": "answer", "read_time": 1781930141},
+        },
+    }
+    entry = _parse_read_history_item(item)
+    assert entry is not None
+    assert entry["url"] == "https://www.zhihu.com/question/789/answer/123"
+    assert entry["title"] == "测试标题"
+    assert entry["read_time"] == 1781930141
+
+    item_no_url = {
+        "card_type": "single_card",
+        "data": {
+            "header": {"title": "无URL"},
+            "action": {"url": ""},
+        },
+    }
+    assert _parse_read_history_item(item_no_url) is None
+
+    item_str_time = {
+        "card_type": "single_card",
+        "data": {
+            "header": {"title": "字符串时间"},
+            "action": {"url": "https://www.zhihu.com/question/1"},
+            "extra": {"read_time": "not_a_number"},
+        },
+    }
+    entry2 = _parse_read_history_item(item_str_time)
+    assert entry2 is not None
+    assert entry2["read_time"] is None

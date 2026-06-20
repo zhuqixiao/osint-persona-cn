@@ -37,12 +37,24 @@ def _video_url(item: dict) -> str:
 async def _nav_mid(client: HttpClient) -> int | None:
     try:
         resp = await client.get("https://api.bilibili.com/x/web-interface/nav")
-        data = resp.json().get("data") or {}
+        payload = resp.json()
+        if payload.get("code") == -101:
+            logger.warning("bilibili cookie expired (code=-101): SESSDATA may be invalid, please re-sync cookies")
+            return None
+        data = payload.get("data") or {}
         mid = data.get("mid")
         return int(mid) if mid else None
     except Exception as exc:  # noqa: BLE001
         logger.warning("bilibili nav mid lookup failed: %s", exc)
         return None
+
+
+def _check_bili_auth(payload: dict[str, Any]) -> bool:
+    """Return True if payload indicates auth failure (code=-101)."""
+    if payload.get("code") == -101:
+        logger.warning("bilibili cookie expired (code=-101): SESSDATA may be invalid, please re-sync cookies")
+        return True
+    return False
 
 
 def _bilibili_section() -> dict[str, Any]:
@@ -71,7 +83,10 @@ async def _fetch_history_entries(limit: int) -> list[dict[str, Any]]:
     try:
         while len(results) < limit:
             resp = await client.get(url)
-            data = resp.json().get("data") or {}
+            payload = resp.json()
+            if _check_bili_auth(payload):
+                break
+            data = payload.get("data") or {}
             batch = data.get("list") or []
             if not batch:
                 break
@@ -144,7 +159,10 @@ async def _fetch_favorite_entries(limit: int) -> list[dict[str, Any]]:
         folders_resp = await client.get(
             f"https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid={mid}"
         )
-        folders = (folders_resp.json().get("data") or {}).get("list") or []
+        folders_payload = folders_resp.json()
+        if _check_bili_auth(folders_payload):
+            return results
+        folders = (folders_payload.get("data") or {}).get("list") or []
         for folder in folders:
             media_id = folder.get("id")
             if not media_id:
@@ -253,6 +271,8 @@ async def _fetch_like_entries(limit: int) -> list[dict[str, Any]]:
                 "https://api.bilibili.com/x/web-interface/wbi/like/archive/list",
                 {"pn": pn, "ps": 20},
             )
+            if _check_bili_auth(payload):
+                break
             if payload.get("code") not in (0, None):
                 break
             items = (payload.get("data") or {}).get("list") or []
@@ -330,6 +350,8 @@ async def _fetch_following_entries(limit: int) -> list[dict[str, Any]]:
                 f"?vmid={mid}&pn={pn}&ps=50&order=desc"
             )
             payload = resp.json()
+            if _check_bili_auth(payload):
+                break
             if payload.get("code") not in (0, None):
                 break
             batch = (payload.get("data") or {}).get("list") or []
