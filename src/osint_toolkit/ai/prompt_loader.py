@@ -8,7 +8,11 @@ from osint_toolkit.auth.paths import get_data_dir
 from osint_toolkit.utils.safe_path import assert_prompt_name, resolve_under
 
 BUILTIN_PROMPTS = {
-    "summarize": "请为以下内容生成结构化摘要，列出核心观点、论据、局限。保持客观。",
+    "summarize": (
+        "请为以下内容生成结构化摘要，列出核心观点、论据、局限。保持客观。\n"
+        "严格遵守：仅基于下方提供的标题、来源、正文和社区观点进行总结；"
+        "不得引入原文未提及的事件、人物、产品或观点；不要编造不存在的事实。"
+    ),
     "report": (
         "请基于以下情报 JSON 生成一份**完整、易读、可扫读**的 Markdown 情报报告。\n\n"
         "必须包含以下一级章节（用 ## 标题，顺序保持一致）：\n"

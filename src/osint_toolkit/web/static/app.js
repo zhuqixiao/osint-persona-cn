@@ -4389,7 +4389,7 @@ async function renderSearchResults(result, resultsEl, reportEl, runId) {
     result.source_routing || result.query_analysis?.source_routing
   );
   updateSourceRoutingHint(result.source_routing || result.query_analysis?.source_routing);
-  const items = result.items || [];
+  const items = (result.items || []).filter((i) => i.signals?.fold_reason !== "扩展词漂移");
   const sims = result.simulations || [];
   const simMap = {};
   sims.forEach((s) => { if (s.item_id) simMap[s.item_id] = s; });

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -82,6 +83,7 @@ from osint_toolkit.web.schemas import (
     SearchExpandRequest,
     SearchRequest,
     SecretSaveRequest,
+    SimOverrideRequest,
     SyncCookiesRequest,
     TunablePatchRequest,
 )
@@ -102,6 +104,8 @@ from osint_toolkit.web.tasks import (
 )
 
 router = APIRouter(prefix="/api")
+
+_STEP_FILE_RE = re.compile(r"^\d+_.+\.json$")
 
 
 @router.get("/health")
@@ -429,6 +433,8 @@ async def api_search_events(run_id: str, request: Request) -> StreamingResponse:
                 for path in sorted(run_dir_path.glob("*_*.json")):
                     if path.name == "manifest.json" or path.name in seen:
                         continue
+                    if not _STEP_FILE_RE.match(path.name):
+                        continue
                     seen.add(path.name)
                     try:
                         data = json.loads(path.read_text(encoding="utf-8"))
@@ -609,6 +615,20 @@ async def api_feedback(body: FeedbackRequest) -> dict[str, Any]:
 async def api_feedback_recent(target_ids: str = "") -> dict[str, Any]:
     ids = [part.strip() for part in target_ids.split(",") if part.strip()]
     return {"feedback": await asyncio.to_thread(feedback.get_feedback_map, ids or None)}
+
+
+@router.post("/runs/{run_id}/sim-override")
+async def api_sim_override(run_id: str, body: SimOverrideRequest) -> dict[str, Any]:
+    rid = _validated_run_id(run_id)
+    return await asyncio.to_thread(
+        feedback.override_simulation,
+        run_id=rid,
+        item_id=body.item_id,
+        interest=body.interest,
+        confidence=body.confidence,
+        verdict=body.verdict,
+        reason=body.reason,
+    )
 
 
 @router.get("/digest/daily")

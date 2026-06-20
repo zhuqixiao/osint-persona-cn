@@ -64,6 +64,14 @@ class FeedbackRequest(BaseModel):
     sim_verdict: str = ""
 
 
+class SimOverrideRequest(BaseModel):
+    item_id: str
+    interest: str = "interested"
+    confidence: float = 0.9
+    verdict: str = ""
+    reason: str = ""
+
+
 class AskRequest(BaseModel):
     question: str
     run_id: str | None = None
