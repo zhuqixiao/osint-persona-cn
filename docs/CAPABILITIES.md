@@ -217,7 +217,8 @@ search:
 
 | 能力 | 配置/开关 | 说明 |
 |------|-----------|------|
-| 条目摘要 | 默认开；`--no-ai` 关闭 | DeepSeek V4 Flash |
+| 条目摘要 | 默认开；`--no-ai` 关闭 | DeepSeek V4 Flash；**防幻觉**：prompt 约束仅基于提供内容，不得引入原文未提及信息 |
+| 评论归纳 | 需勾选评论挖掘 | 归纳社区评论为观点摘要；**防幻觉**：同样约束不引入评论外信息；AI 返回空时自动回退原始评论列表 |
 | 情报报告 | `--digest` / Web 勾选「本轮情报报告」 | 基于去重条目 + 评论挖掘；正文含 `[cN]` 可点击溯源 |
 | 画像模拟 | `--no-simulate` 关闭 | 需已有 persona |
 | 别名发现 | `search.discover_aliases` | 联网 + AI，可禁 `--no-ai-step alias_discover` |
@@ -258,7 +259,7 @@ Windows 可双击 `启动情报台.bat`、`sync-cookies.bat`。
 |------|------|
 | Pre-Alpha | API 与配置可能随版本变更 |
 | 中文站为主 | 采集器针对知乎/B站/国内 Web 优化 |
-| Cookie 时效 | B站/知乎接口依赖登录态，需定期重新同步；**B站过期（code=-101）会自动检测并警告** |
+| Cookie 时效 | B站/知乎接口依赖登录态，需定期重新同步；**B站过期（code=-101 或含"权限"关键词）首次检出后立即设 `_auth_failed` 短路标记，后续所有评论/弹幕请求自动跳过，避免大量无用 API 调用和重复警告日志** |
 | 反爬/WAF | 频繁请求可能空结果；系统含 WBI 重试与扩展补洞 |
 | Python 3.14 | 暂不支持（`rookiepy`） |
 | 微信 | 仅搜狗搜索搜罗；公众号文行为依赖 **Edge 浏览历史**（`ingest browser`）或手动收录，扩展 **不** 被动跟踪 `mp.weixin.qq.com` |
@@ -275,11 +276,13 @@ Windows 可双击 `启动情报台.bat`、`sync-cookies.bat`。
 |------|------|
 | **搜索取消** | `collect_all` 的 `try/finally` 确保取消时杀掉所有采集子任务，不再泄漏连接 |
 | **AI 容错** | `DeepSeekClient()` 构造移入 try 块；API Key 缺失或超时时降级为规则摘要/空结果，不崩溃整条搜索 |
+| **AI 防幻觉** | 摘要 prompt 与系统硬约束明确要求 AI 仅基于提供的标题/正文/社区观点生成摘要，**不得引入原文未提及的事件、人物、产品**；评论归纳同样受约束，且 AI 返回空内容时自动回退为原始评论列表 |
+| **评论摘要保护** | 存储前检查评论归纳长度 > 10 字符，空白/过短内容不写入，前端不会渲染空的"社区观点归纳"区块 |
 | **别名发现超时** | `probe_network` 加 60s 总超时 + 30s 单源超时，单个采集器卡住不阻塞整条搜索 |
 | **分页防死循环** | 知乎收藏/关注、B站收藏/关注等所有分页循环加 50-100 页上限 |
 | **同步状态锁** | `account_sync_state` 加 `threading.Lock` + `atomic_update_state()`，防止并发同步丢失更新 |
 | **事件去重** | `log_events_batch()` 单次连接批量写入，替代循环 N+1；`ingest_history`/`ingest_likes` 改用去重写入 |
-| **B站 Cookie 过期检测** | 所有 fetch 函数检测 `code=-101` 并 `logger.warning`，不再静默返回空 |
+| **B站 Cookie 过期检测** | 所有 fetch 函数检测 `code=-101` 或含"权限"关键词的响应，首次命中设 `_auth_failed` 短路标记，后续请求直接跳过（不再发 WBI/legacy API），同时抑制重复警告日志 |
 | **部分结果持久化** | 知乎浏览历史翻页失败时保存已获取数据，不丢弃 |
 | **数据库索引** | 新增 6 个索引（`events.event_type/created_at`、`intel_items.source/url/created_at`、`endorsements.endorsed_at`），消除全表扫描 |
 | **async 端点** | 30+ 个 `async def` 端点用 `asyncio.to_thread()` 包裹同步调用，不再阻塞事件循环 |
