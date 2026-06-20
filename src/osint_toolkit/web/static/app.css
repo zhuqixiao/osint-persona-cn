@@ -2907,3 +2907,40 @@ details[open] summary { color: var(--accent); margin-bottom: 0.5rem; }
   .floating-nav { right: 0.5rem; }
   .floating-nav-btn { width: 1.8rem; height: 1.8rem; font-size: 0.65rem; }
 }
+
+/* AI steps detail */
+.ai-steps-toggle {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: inherit;
+  padding: 0;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 0.2em;
+}
+.ai-steps-toggle:hover { color: var(--primary, #6366f1); }
+.ai-steps-caret { font-size: 0.75em; margin-left: 0.25em; }
+.ai-steps-detail { margin-top: 0.5rem; }
+.ai-steps-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+.ai-steps-table th,
+.ai-steps-table td {
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border, #d0d5dd);
+  text-align: left;
+  vertical-align: top;
+}
+.ai-steps-table th {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.ais-col-label { width: 12%; white-space: nowrap; }
+.ais-col-input { width: 28%; }
+.ais-col-output { width: 50%; }
+.ais-col-dur { width: 10%; color: var(--muted); text-align: right; }

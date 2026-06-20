@@ -4439,6 +4439,7 @@ async function renderSearchResults(result, resultsEl, reportEl, runId) {
     ? `<div class="results-load-more-wrap mt-1"><button type="button" class="btn btn-sm btn-secondary" data-load-more-results>加载更多</button></div>`
     : "";
   resultsEl.innerHTML = `${warnHtml}${errorHtml}${metaHtml}${renderResultsToolbar(items.length, result.intel_stats, countItemsBySource(items))}<div class="item-card-list"></div>${loadMore}`;
+  initAiStepsToggles();
 
   if (items.length > RESULTS_RENDER_BATCH) {
     bindResultsToolbar(resultsEl, runId);
@@ -4509,21 +4510,58 @@ function renderSearchTimeline(result) {
 
 function formatAiParticipationSummary(result) {
   const noAi = result.no_ai === true || result.manifest?.no_ai === true;
-  if (noAi) return "AI：已跳过（勾选「跳过 AI」）";
+  if (noAi) return `<span class="search-meta-ai">AI：已跳过（勾选「跳过 AI」）</span>`;
   const manifestSteps = result.manifest?.steps || [];
-  const aiSteps = manifestSteps
-    .filter((s) => s.ai_invoked === true)
-    .map((s) => formatStepLabel(s.step))
-    .filter(Boolean);
-  if (aiSteps.length) return `AI 参与：${aiSteps.join(" → ")}`;
-  return "AI：已启用";
+  const aiSteps = manifestSteps.filter((s) => s.ai_invoked === true);
+  const labels = aiSteps.map((s) => formatStepLabel(s.step)).filter(Boolean);
+  if (!labels.length) return `<span class="search-meta-ai">AI：已启用</span>`;
+
+  const detailRows = aiSteps
+    .map((s) => {
+      const label = formatStepLabel(s.step);
+      const input = escapeHtml(s.input_summary || "—");
+      const output = escapeHtml(s.output_summary || "—");
+      const duration = s.duration_ms ? `${(s.duration_ms / 1000).toFixed(1)}s` : "—";
+      return `<tr><td class="ais-col-label">${label}</td><td class="ais-col-input">${input}</td><td class="ais-col-output">${output}</td><td class="ais-col-dur">${duration}</td></tr>`;
+    })
+    .join("");
+
+  const uid = "ai-steps-" + Math.random().toString(36).slice(2, 8);
+  return `
+    <span class="search-meta-ai">
+      <button type="button" class="ai-steps-toggle" data-ai-steps-target="${uid}">
+        AI 参与：${labels.join(" → ")}
+        <span class="ai-steps-caret">&#9662;</span>
+      </button>
+    </span>
+    <div class="ai-steps-detail hidden" id="${uid}">
+      <table class="ai-steps-table"><thead><tr><th>步骤</th><th>输入</th><th>产出</th><th>耗时</th></tr></thead><tbody>${detailRows}</tbody></table>
+    </div>`;
+}
+
+function initAiStepsToggles() {
+  document.querySelectorAll(".ai-steps-toggle").forEach((btn) => {
+    if (btn.dataset.boundAiSteps) return;
+    btn.dataset.boundAiSteps = "1";
+    btn.addEventListener("click", () => {
+      const targetId = btn.dataset.aiStepsTarget;
+      const panel = document.getElementById(targetId);
+      if (!panel) return;
+      const caret = btn.querySelector(".ai-steps-caret");
+      if (panel.classList.toggle("hidden")) {
+        if (caret) caret.textContent = "\u25B6";
+      } else {
+        if (caret) caret.textContent = "\u25BC";
+      }
+    });
+  });
 }
 
 function renderSearchMetaBanner(result) {
   const queries = result.queries_used || result.query_analysis?.queries_used || [];
   const discovered = result.discover_meta?.discovered_aliases || [];
   const parts = [];
-  parts.push(`<span class="search-meta-ai">${escapeHtml(formatAiParticipationSummary(result))}</span>`);
+  parts.push(formatAiParticipationSummary(result));
   if (queries.length > 1) {
     parts.push(`扩展查询 ${queries.length} 个：${queries.slice(0, 6).map(escapeHtml).join(" · ")}`);
   }
