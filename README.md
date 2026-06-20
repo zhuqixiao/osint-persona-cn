@@ -16,12 +16,13 @@
 |------|------|
 | **多源搜罗** | 知乎、B站、微信、Web、V2EX、RSS；扩展信源含微博、即刻、贴吧、小红书、机核、Chiphell、财新、澎湃、Reddit 等（SERP）；可选别名发现与评论/字幕挖掘；**支持多任务排队** |
 | **情报报告** | DeepSeek 生成 markdown 报告，支持追问与每日简报 |
-| **行为导入** | Edge 历史、B站/知乎账号 API、**知乎点赞/浏览历史 API（反向发现）**、Chrome 扩展被动采集 |
+| **行为导入** | Edge 历史、B站/知乎账号 API、**知乎点赞/浏览历史 API（反向发现）**、Chrome 扩展被动采集；B站 Cookie 过期自动检测 |
 | **心智画像** | 从行为构建 persona，搜罗时模拟「我会不会点」 |
 | **研究树** | 多轮搜罗、笔记、AI 归纳要点、分叉深挖、导图 |
 | **知识库** | 收录 URL、FTS 检索、高停留自动入库（扩展） |
 | **流程透明** | 每轮搜罗落盘 `~/.osint/runs/{run_id}/`，可 `osint run show` |
-| **AI 可控** | `ai_directives`、自定义 prompt、`--ai-instruct` |
+| **AI 可控** | `ai_directives`、自定义 prompt、`--ai-instruct`；AI 步骤失败时优雅降级 |
+| **稳健性** | 搜索取消即停（无孤儿任务）、分页防死循环、同步状态文件锁、批量事件写入 + 数据库索引 |
 
 完整能力矩阵与限制见 **[docs/CAPABILITIES.md](docs/CAPABILITIES.md)**。
 

@@ -147,11 +147,17 @@ pytest tests/test_extension_events.py -q  # 扩展解析
 ## AI 维护时的注意点
 
 1. **最小改动**：搜罗参数泄漏曾导致 `tree_id` 传入 `run_search` 报错；改 API 时检查 `search_params.py` 边界。
-2. **Cookie 与 WBI**：B站/知乎接口常变；失败时优先 WBI 回退、扩展补洞，而非硬爬页面。
+2. **Cookie 与 WBI**：B站/知乎接口常变；失败时优先 WBI 回退、扩展补洞，而非硬爬页面。B站 `code=-101` 用 `_check_bili_auth()` 检测。
 3. **SQLite 并发**：扩展 auto-save 不得在持有 DB 连接时 `await` 长时间 `save_url`；见 `services/extension.py` WAL 模式。
 4. **扩展队列**：`extension/lib/queue.js` 分批 POST（默认 25 条/批），勿恢复单次 500 条上传。
 5. **工作台布局**：搜罗页为分区 Tab（结果/报告/研究树），宽屏可选分屏；勿恢复三列挤版。
 6. **文档同步**：用户可见能力变更时更新 `docs/CAPABILITIES.md` 与 README 功能列表。
+7. **async 端点必须 `asyncio.to_thread`**：`web/routes/api.py` 中所有 `async def` 端点调用同步函数（SQLite、文件 I/O、HTTP）时必须用 `await asyncio.to_thread(fn, ...)` 包裹，否则阻塞事件循环（曾导致行为时间线页超时）。
+8. **事件批量写入**：循环 `log_event_deduped()` 已废弃，改用 `log_events_batch([(type, data, key), ...])` 单次连接批量写入。新代码勿恢复 N+1 模式。
+9. **分页安全上限**：所有分页循环必须加页数上限（如 `if page > 50: break`），防止 API 返回全重复数据时死循环。
+10. **同步状态原子更新**：`_persist_bilibili`/`_persist_zhihu` 用 `sync_state.atomic_update_state(fn)` 做 load→update→save 原子操作；勿恢复裸 `load` + `save` 序列。
+11. **AI 步骤构造 DeepSeekClient 在 try 内**：`DeepSeekClient()` 构造可能因 API Key 缺失而抛异常，必须在 try 块内构造，否则崩溃整条搜索。
+12. **搜索取消清理**：`collect_all` 的 `while pending` 循环用 `try/finally` 包裹，确保 `JobCancelled` 时取消所有子任务。
 
 ## 关键配置段（`config.example.yaml`）
 

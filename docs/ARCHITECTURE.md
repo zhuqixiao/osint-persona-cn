@@ -82,8 +82,16 @@
 扩展「服务端拉取 + 轻量补洞」：
 
 1. `POST /api/ingest/bilibili`、`POST /api/ingest/zhihu`（历史/收藏/WBI 点赞等）
-2. 知乎浏览：优先通过 `/api/v4/unify-consumption/read_history` 拉取（2024-11 反向发现，每页 20 条，offset 翻页，总计可达数百条），Edge 历史作为补充；知乎点赞/活动历史通过 `/api/v3/moments/{token}/activities` 拉取（取代已废弃的 v4 members API）
+2. 知乎浏览：优先通过 `/api/v4/unify-consumption/read_history` 拉取（反向发现，每页 20 条，offset 翻页），Edge 历史作为补充；知乎点赞/活动历史通过 `/api/v3/moments/{token}/activities` 拉取
 3. **Playwright 浏览器会话补洞**：打开 space/dynamic/recent-viewed 页，复用 `capture_patterns` + `extension_events.parse_api_capture`
+
+**B站 Cookie 过期检测**：所有 fetch 函数检测 `code=-101` 并 `logger.warning`（`_check_bili_auth()`），不再静默返回空列表。
+
+**同步状态原子更新**：`_persist_bilibili`/`_persist_zhihu` 用 `sync_state.atomic_update_state(fn)` 做 load→update→save 原子操作（`threading.Lock` 保护），防止并发同步丢失更新。
+
+**事件批量写入**：`log_events_batch([(type, data, key), ...])` 单次连接批量写入 + 去重，替代循环 `log_event_deduped`。
+
+**数据库索引**：`events(event_type/created_at)`、`intel_items(source/url/created_at)`、`endorsements(endorsed_at)` 6 个索引消除全表扫描。
 
 **AICU 策略**：默认关闭；`scripts/probe_aicu.py` 探测 PASS 后再开启。WAF 拦截时改用 space 页 + reply API 补洞。
 

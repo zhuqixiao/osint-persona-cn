@@ -258,7 +258,7 @@ Windows 可双击 `启动情报台.bat`、`sync-cookies.bat`。
 |------|------|
 | Pre-Alpha | API 与配置可能随版本变更 |
 | 中文站为主 | 采集器针对知乎/B站/国内 Web 优化 |
-| Cookie 时效 | B站/知乎接口依赖登录态，需定期重新同步 |
+| Cookie 时效 | B站/知乎接口依赖登录态，需定期重新同步；**B站过期（code=-101）会自动检测并警告** |
 | 反爬/WAF | 频繁请求可能空结果；系统含 WBI 重试与扩展补洞 |
 | Python 3.14 | 暂不支持（`rookiepy`） |
 | 微信 | 仅搜狗搜索搜罗；公众号文行为依赖 **Edge 浏览历史**（`ingest browser`）或手动收录，扩展 **不** 被动跟踪 `mp.weixin.qq.com` |
@@ -266,6 +266,28 @@ Windows 可双击 `启动情报台.bat`、`sync-cookies.bat`。
 | AICU 发评 | 默认关；服务端直连常被 WAF 拦截 |
 | 单用户 | Web 无认证，勿暴露到公网 |
 | AI 成本 | DeepSeek 按 token 计费；可用 `--no-ai` 降级 |
+
+### 9.1 稳健性与性能改进
+
+以下问题已修复（2025-06）：
+
+| 维度 | 改进 |
+|------|------|
+| **搜索取消** | `collect_all` 的 `try/finally` 确保取消时杀掉所有采集子任务，不再泄漏连接 |
+| **AI 容错** | `DeepSeekClient()` 构造移入 try 块；API Key 缺失或超时时降级为规则摘要/空结果，不崩溃整条搜索 |
+| **别名发现超时** | `probe_network` 加 60s 总超时 + 30s 单源超时，单个采集器卡住不阻塞整条搜索 |
+| **分页防死循环** | 知乎收藏/关注、B站收藏/关注等所有分页循环加 50-100 页上限 |
+| **同步状态锁** | `account_sync_state` 加 `threading.Lock` + `atomic_update_state()`，防止并发同步丢失更新 |
+| **事件去重** | `log_events_batch()` 单次连接批量写入，替代循环 N+1；`ingest_history`/`ingest_likes` 改用去重写入 |
+| **B站 Cookie 过期检测** | 所有 fetch 函数检测 `code=-101` 并 `logger.warning`，不再静默返回空 |
+| **部分结果持久化** | 知乎浏览历史翻页失败时保存已获取数据，不丢弃 |
+| **数据库索引** | 新增 6 个索引（`events.event_type/created_at`、`intel_items.source/url/created_at`、`endorsements.endorsed_at`），消除全表扫描 |
+| **async 端点** | 30+ 个 `async def` 端点用 `asyncio.to_thread()` 包裹同步调用，不再阻塞事件循环 |
+| **搜索清理健壮性** | `_execute_search` finally 块每步独立 try/except，磁盘满等异常不跳过后续清理 |
+| **进度状态保留** | `finish_progress` 保留 "done" 状态到磁盘，完成后轮询可区分"完成"vs"未找到" |
+| **知乎 URL 覆盖** | `_ZHIHU_CONTENT_URL` 正则补全 `zhuanlan./pin//zvideo//people//column/` |
+| **相对 URL 处理** | `_parse_read_history_item` 支持 `/question/...` 相对路径，自动补全 |
+| **dedup key 区分** | 知乎踩反对/取消赞同的 dedup key 加入 `vote_type` 和 HTTP method，不再碰撞 |
 
 ---
 
