@@ -16,29 +16,44 @@
 
 ## 已停用（不再自动调用）
 
-以下路径经实测对当前知乎账号 **404 或长期空数据**，同步流程 **不再请求**，以免浪费时间与 Playwright 资源：
+以下路径经实测对当前知乎账号 **404 或长期空数据**：
 
 | 原能力 | 原因 |
 |--------|------|
-| `voteanswers` / `vote_answers` / `answers/voted` | HTTP **404**，接口已废弃 |
-| `browsing_histories` / `footprints` 等浏览 API | HTTP **404** |
-| `members/{token}/activities` 动态流 | 常返回 **空列表**，不作为主数据源 |
-| 自动 Playwright 打开知乎主页/赞同 Tab 补洞 | Cookie 无头模式下 **实测 0 条**捕获，已关闭 |
-| `recent-viewed` HTML 引导解析 | 实测无稳定数据，已关闭 |
+| `voteanswers` / `vote_answers` / `answers/voted` | HTTP **404**，接口已废弃（2024-11 对 sankichu 重新实测确认仍 404）|
+| `browsing_histories` / `footprints` 等浏览 API | HTTP **404**（重新实测确认）|
+| `members/{token}/activities` 动态流（HttpClient 直调）| 200 但 **返回空列表**；可能需浏览器 x-zse-96 签名 |
 
-## 赞同 / 日常浏览 — 请用扩展
+## 点赞/收藏/关注 — 扩展 POST 拦截（实时记录）
 
-| 数据 | 推荐来源 |
-|------|----------|
-| **赞同**（点赞回答） | Chrome 扩展拦截 XHR / 用户点赞时的 API；**非**账号同步 |
-| **日常浏览**（未进 Edge 历史的页面） | 扩展 `ext_page_visit` / `ext_page_dwell` |
+知乎已关闭赞同历史端点，**完整点赞历史无法恢复**。但从现在起每次点赞/收藏/关注动作可被
+扩展实时拦截并记录到 events 表：
 
-安装扩展后日常上网即可增量写入 `events` 表，参与画像与「行为认可」。
+| 动作 | 拦截端点 | event_type |
+|------|----------|------------|
+| 点赞回答/文章/想法 | `POST /api/v4/{type}/{id}/voters` | `zhihu_vote` |
+| 取消点赞 | `DELETE /api/v4/{type}/{id}/voters` | `zhihu_unvote` |
+| 收藏内容 | `POST /api/v4/favlists/items` | `zhihu_fav` |
+| 取消收藏 | `DELETE /api/v4/favlists/items` | `zhihu_unfav` |
+| 关注人/问题 | `POST /api/v4/{type}/{token}/followers` | `zhihu_follow` |
+| 取消关注 | `DELETE /api/v4/{type}/{token}/followers` | `zhihu_unfollow` |
 
-## 用户可见提示
+实现：`extension/content/inject.js` 拦截 POST → `ingest/extension_events.py` `_parse_zhihu_post` 解析。
 
-- 行为同步结果中的 **「画像三要素」**：赞同/浏览/动态若显示 `skip` 或 `extension`，表示该项 **不承诺** 由 Cookie 同步拉全。
-- 收藏、关注在「行为认可」中为 **库存快照**；近期赞同依赖扩展。
+## Playwright 补洞页（动态/收藏/回答）
+
+`ZHIHU_PROBE_PAGES` 已填充知乎个人主页各 Tab 模板。`osint sync --mode browser` 或
+`osint ingest browser-sync` 会打开这些页面，由浏览器自然签名后发出 XHR，
+`capture_patterns` 拦截入库。推荐 Persistent 模式（需关闭 Edge）。
+
+| 页面 | URL | 预期拦截 |
+|------|-----|----------|
+| 知乎动态 | `/people/{token}/activities` | activities XHR（含点赞/收藏/关注动态）|
+| 知乎收藏 | `/people/{token}/collections` | favlists + collections/items XHR |
+| 知乎回答 | `/people/{token}/answers` | members/{token}/answers XHR |
+| 知乎文章 | `/people/{token}/posts` | members/{token}/articles XHR |
+
+扩展定时同步（`probePageTemplates`）也包含知乎动态/收藏页，每 4h 自动打开拦截。
 
 ## 维护者
 

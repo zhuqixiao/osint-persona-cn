@@ -68,8 +68,16 @@ PUBLISH_ENDPOINTS: tuple[EndpointSpec, ...] = (
     ),
 )
 
-# 知乎 Playwright 自动补洞已停用（实测 Cookie 模式 0 捕获）
-ZHIHU_PROBE_PAGES: tuple[dict[str, str], ...] = ()
+# 知乎 Playwright 补洞页：打开个人主页各 Tab，由浏览器签名后拦截 XHR 入库。
+# 实测 activities 端点对 HttpClient 返回空（可能需浏览器 x-zse-96 签名），
+# Playwright 打开真实页面让浏览器自然签名并发出 XHR，由 capture_patterns 拦截。
+# 可通过 config `zhihu.people_probe.enabled` 关闭。
+ZHIHU_PROBE_PAGES: tuple[dict[str, str], ...] = (
+    {"label": "知乎动态", "url": "https://www.zhihu.com/people/{token}/activities"},
+    {"label": "知乎收藏", "url": "https://www.zhihu.com/people/{token}/collections"},
+    {"label": "知乎回答", "url": "https://www.zhihu.com/people/{token}/answers"},
+    {"label": "知乎文章", "url": "https://www.zhihu.com/people/{token}/posts"},
+)
 
 
 def layer_status_from_count(count: int, *, attempted: bool = True) -> LayerStatus:

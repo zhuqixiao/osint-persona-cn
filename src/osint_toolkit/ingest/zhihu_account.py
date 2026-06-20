@@ -114,10 +114,70 @@ async def ingest_activities(
     *,
     skip_answer_votes: bool = False,
 ) -> tuple[list[dict], str | None]:
-    """已停用：activities API 长期空数据，见 docs/ZHIHU_PERSONA.md。"""
-    del limit, skip_answer_votes
-    logger.debug("zhihu activities API skipped (deprecated)")
-    return [], None
+    """尝试拉取知乎动态流 activities。
+
+    实测 activities 端点对 HttpClient 常返回空列表（可能需浏览器 x-zse-96 签名）。
+    默认尝试调用，返回空则跳过。Playwright 打开 /people/{token}/activities 页
+    可由浏览器签名后触发 XHR，由 capture_patterns 拦截入库。
+    """
+    from osint_toolkit.ingest.zhihu_activities import activity_entry_from_item, classify_activity
+    from osint_toolkit.utils.config import get_search_config
+
+    del skip_answer_votes
+    search_cfg = get_search_config()
+    if not search_cfg.get("zhihu_try_activities", False):
+        logger.debug("zhihu activities skipped (set search.zhihu_try_activities=true to enable)")
+        return [], None
+
+    client = HttpClient()
+    token = await _url_token(client)
+    if not token:
+        return [], None
+    section = _zhihu_section()
+    seen_urls = sync_state._string_set(section.get("activity_urls", []))
+    results: list[dict] = []
+    seen: set[str] = set()
+    offset = 0
+    try:
+        while len(results) < limit:
+            resp = await client.get(
+                f"https://www.zhihu.com/api/v4/members/{token}/activities"
+                f"?limit=20&offset={offset}&include=data[*].target,actor",
+                headers={"Referer": f"https://www.zhihu.com/people/{token}/activities"},
+            )
+            if resp.status_code != 200:
+                break
+            payload = resp.json()
+            batch = iter_api_data_items(payload.get("data"))
+            if not batch:
+                break
+            for item in batch:
+                entry = activity_entry_from_item(item, via="activities_api")
+                if not entry or entry["url"] in seen:
+                    continue
+                seen.add(entry["url"])
+                results.append(entry)
+                if len(results) >= limit:
+                    break
+            paging = payload.get("paging") or {}
+            if paging.get("is_end") or len(batch) < 20:
+                break
+            offset += 20
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("zhihu activities ingest failed: %s", exc)
+    if not results:
+        logger.debug("zhihu activities returned 0 items (endpoint may require browser signature)")
+        return [], None
+    fresh = sync_state.filter_new_by_urls(results, seen_urls)
+    for entry in fresh:
+        url = str(entry.get("url") or "")
+        event_type = "zhihu_activity"
+        classified = classify_activity({"verb": entry.get("verb", ""), "type": entry.get("activity_type", "")})
+        if classified:
+            event_type = classified[0]
+        log_event_deduped(event_type, entry, f"{event_type}|{url}")
+    _persist_zhihu(activities=results)
+    return fresh, "activities"
 
 
 async def ingest_voteanswers(limit: int = 500) -> tuple[list[dict], str | None]:
@@ -411,8 +471,8 @@ def zhihu_layer_status(
             "status": "skip",
             "count": vote_count,
             "endpoint": None,
-            "layer": "extension",
-            "note": "voteanswers API 已废弃；赞同请安装扩展被动采集",
+            "layer": "extension_post",
+            "note": "voteanswers API 已废弃（404）；点赞由扩展 POST 拦截实时记录，历史无法恢复",
         },
         "browse": {
             "status": browse_status,
@@ -428,7 +488,7 @@ def zhihu_layer_status(
             "count": 0,
             "synthetic_count": synthetic_count,
             "endpoint": None,
-            "layer": "synthetic" if synthetic_count else "skip",
-            "note": "官方动态流已停用；由收藏/关注/发布合成时间线",
+            "layer": "synthetic" if synthetic_count else "playwright",
+            "note": "官方动态流需浏览器签名（HttpClient 常空）；Playwright 打开动态页可拦截 XHR",
         },
     }

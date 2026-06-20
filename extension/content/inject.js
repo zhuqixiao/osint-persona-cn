@@ -34,6 +34,11 @@
   const REPLY_ACTION = /bilibili\.com\/x\/v2\/reply\/action/i;
   const REPLY_ADD = /bilibili\.com\/x\/v2\/reply\/add/i;
 
+  // 知乎 POST 动作拦截（点赞/收藏/关注）
+  const ZHIHU_VOTE_POST = /zhihu\.com\/api\/v4\/(answers|articles|pins)\/\d+\/voters/i;
+  const ZHIHU_FAV_POST = /zhihu\.com\/api\/v4\/favlists\/items/i;
+  const ZHIHU_FOLLOW_POST = /zhihu\.com\/api\/v4\/(members|questions)\/[^/]+\/followers/i;
+
   function shouldCapture(url) {
     return CAPTURE.some((re) => re.test(url));
   }
@@ -103,8 +108,26 @@
   window.fetch = async function (...args) {
     const req = args[0];
     const url = typeof req === "string" ? req : req && req.url ? req.url : "";
+    const method = (args[1] && args[1].method) || (req && req.method) || "GET";
     const isReplyAction = url && REPLY_ACTION.test(url);
     const isReplyAdd = url && REPLY_ADD.test(url);
+    const isZhihuVote = url && ZHIHU_VOTE_POST.test(url) && method.toUpperCase() !== "GET";
+    const isZhihuFav = url && ZHIHU_FAV_POST.test(url) && method.toUpperCase() !== "GET";
+    const isZhihuFollow = url && ZHIHU_FOLLOW_POST.test(url) && method.toUpperCase() !== "GET";
+    const isZhihuPost = isZhihuVote || isZhihuFav || isZhihuFollow;
+
+    if (isZhihuPost) {
+      const params = await readRequestBody(args[1] || {});
+      const res = await origFetch.apply(this, args);
+      try {
+        res
+          .clone()
+          .json()
+          .then((body) => emit("fetch", url, { _osint_zhihu_post: params, _osint_method: method, _osint_response: body }))
+          .catch(() => emit("fetch", url, { _osint_zhihu_post: params, _osint_method: method, _osint_response: null }));
+      } catch (_) {}
+      return res;
+    }
 
     if (isReplyAdd) {
       const params = await readRequestBody(args[1] || {});
@@ -161,8 +184,21 @@
     const method = String(this._osintMethod || "").toUpperCase();
     const isReplyAction = REPLY_ACTION.test(url) && method === "POST";
     const isReplyAdd = REPLY_ADD.test(url) && method === "POST";
+    const isZhihuVote = ZHIHU_VOTE_POST.test(url) && method !== "GET";
+    const isZhihuFav = ZHIHU_FAV_POST.test(url) && method !== "GET";
+    const isZhihuFollow = ZHIHU_FOLLOW_POST.test(url) && method !== "GET";
+    const isZhihuPost = isZhihuVote || isZhihuFav || isZhihuFollow;
 
-    if (isReplyAdd) {
+    if (isZhihuPost) {
+      const params = parseFormBody(body);
+      this.addEventListener("load", function () {
+        let resp = null;
+        try {
+          if (this.responseText) resp = JSON.parse(this.responseText);
+        } catch (_) {}
+        emit("xhr", url, { _osint_zhihu_post: params, _osint_method: method, _osint_response: resp });
+      });
+    } else if (isReplyAdd) {
       const params = parseFormBody(body);
       this.addEventListener("load", function () {
         let resp = null;

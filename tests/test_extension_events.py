@@ -102,6 +102,89 @@ def test_parse_zhihu_voteanswers():
     assert "question/123/answer/456" in rows[0][1]["url"]
 
 
+def test_parse_zhihu_vote_post():
+    """扩展拦截点赞回答 POST 动作。"""
+    body = {
+        "_osint_zhihu_post": {"type": "up"},
+        "_osint_method": "POST",
+        "_osint_response": {},
+    }
+    rows = parse_api_capture("https://www.zhihu.com/api/v4/answers/12345/voters", body)
+    assert len(rows) == 1
+    assert rows[0][0] == "zhihu_vote"
+    assert rows[0][1]["url"] == "https://www.zhihu.com/answer/12345"
+    assert rows[0][1]["event_kind"] == "vote"
+    assert rows[0][1]["via"] == "extension_post"
+
+
+def test_parse_zhihu_vote_article_post():
+    """点赞文章 POST。"""
+    body = {
+        "_osint_zhihu_post": {"type": "up"},
+        "_osint_method": "POST",
+        "_osint_response": {},
+    }
+    rows = parse_api_capture("https://www.zhihu.com/api/v4/articles/67890/voters", body)
+    assert len(rows) == 1
+    assert rows[0][0] == "zhihu_vote"
+    assert rows[0][1]["url"] == "https://zhuanlan.zhihu.com/p/67890"
+
+
+def test_parse_zhihu_unvote_post():
+    """取消点赞（DELETE）。"""
+    body = {
+        "_osint_zhihu_post": {},
+        "_osint_method": "DELETE",
+        "_osint_response": {},
+    }
+    rows = parse_api_capture("https://www.zhihu.com/api/v4/answers/12345/voters", body)
+    assert len(rows) == 1
+    assert rows[0][0] == "zhihu_unvote"
+    assert rows[0][1]["event_kind"] == "unvote"
+
+
+def test_parse_zhihu_fav_post():
+    """收藏内容 POST。"""
+    body = {
+        "_osint_zhihu_post": {"content_id": "12345", "content_type": "answer", "favlist_id": "99"},
+        "_osint_method": "POST",
+        "_osint_response": {},
+    }
+    rows = parse_api_capture("https://www.zhihu.com/api/v4/favlists/items", body)
+    assert len(rows) == 1
+    assert rows[0][0] == "zhihu_fav"
+    assert rows[0][1]["url"] == "https://www.zhihu.com/answer/12345"
+    assert rows[0][1]["favlist_id"] == "99"
+    assert rows[0][1]["via"] == "extension_post"
+
+
+def test_parse_zhihu_follow_post():
+    """关注人 POST。"""
+    body = {
+        "_osint_zhihu_post": {"name": "某用户"},
+        "_osint_method": "POST",
+        "_osint_response": {},
+    }
+    rows = parse_api_capture("https://www.zhihu.com/api/v4/members/someuser/followers", body)
+    assert len(rows) == 1
+    assert rows[0][0] == "zhihu_follow"
+    assert rows[0][1]["url"] == "https://www.zhihu.com/people/someuser"
+    assert rows[0][1]["event_kind"] == "follow"
+
+
+def test_parse_zhihu_follow_question_post():
+    """关注问题 POST。"""
+    body = {
+        "_osint_zhihu_post": {},
+        "_osint_method": "POST",
+        "_osint_response": {},
+    }
+    rows = parse_api_capture("https://www.zhihu.com/api/v4/questions/12345/followers", body)
+    assert len(rows) == 1
+    assert rows[0][0] == "zhihu_follow"
+    assert "question/12345" in rows[0][1]["url"]
+
+
 def test_page_session_min_duration():
     rows = normalize_extension_payload(
         {"kind": "page_session", "url": "https://www.bilibili.com/video/BV1", "title": "t", "duration_ms": 1000}

@@ -68,6 +68,8 @@ def parse_api_capture(url: str, body: Any) -> list[tuple[str, dict[str, Any], st
         return []
     if body.get("_osint_reply_post") and "bilibili.com" in url:
         return _parse_reply_post(body)
+    if "_osint_zhihu_post" in body and "zhihu.com" in url:
+        return _parse_zhihu_post(url, body)
     if not should_capture_url(url):
         return []
     if "bilibili.com" in url:
@@ -271,6 +273,107 @@ def _parse_bilibili_api(url: str, body: dict[str, Any]) -> list[tuple[str, dict[
             }
             out.append(("bilibili_like", entry, _dedup_key("bilibili_like", video_url)))
     return out
+
+
+_ZHIHU_VOTERS_URL = re.compile(r"/api/v4/(answers|articles|pins)/(\d+)/voters", re.I)
+_ZHIHU_FAV_ITEM_URL = re.compile(r"/api/v4/favlists/items", re.I)
+_ZHIHU_FOLLOW_URL = re.compile(r"/api/v4/(?:members|questions)/([^/]+)/followers", re.I)
+
+
+def _parse_zhihu_post(url: str, body: dict[str, Any]) -> list[tuple[str, dict[str, Any], str]]:
+    """解析知乎 POST 动作（点赞/收藏/关注）。
+
+    inject.js 拦截 POST 请求后包装为 ``{_osint_zhihu_post: params, _osint_method, _osint_response}``。
+    根据端点 URL 分类：
+    - ``/{type}/{id}/voters`` → 点赞/取消点赞
+    - ``/favlists/items`` → 收藏/取消收藏
+    - ``/members/{token}/followers`` 或 ``/questions/{qid}/followers`` → 关注/取消关注
+    """
+    params: dict[str, Any] = body.get("_osint_zhihu_post") or {}
+    method = str(body.get("_osint_method") or "").upper()
+    response = body.get("_osint_response") or {}
+    is_delete = method == "DELETE"
+    out: list[tuple[str, dict[str, Any], str]] = []
+
+    m = _ZHIHU_VOTERS_URL.search(url)
+    if m:
+        content_type = m.group(1)
+        content_id = m.group(2)
+        vote_type = str(params.get("type") or "up")
+        content_url = _zhihu_content_url_from_id(content_type, content_id)
+        action = "unvote" if is_delete or vote_type == "down" else "vote"
+        entry = {
+            "source": "zhihu",
+            "title": str(response.get("target", {}).get("title") or response.get("question", {}).get("title") or "") if isinstance(response, dict) else "",
+            "url": content_url,
+            "type": content_type,
+            "content_id": content_id,
+            "event_kind": action,
+            "vote_type": vote_type,
+            "via": "extension_post",
+        }
+        event_type = "zhihu_vote" if action == "vote" else "zhihu_unvote"
+        out.append((event_type, entry, _dedup_key(event_type, content_url, content_id)))
+        return out
+
+    if _ZHIHU_FAV_ITEM_URL.search(url):
+        content_id = str(params.get("content_id") or "")
+        content_type = str(params.get("content_type") or "")
+        favlist_id = str(params.get("favlist_id") or "")
+        content_url = _zhihu_content_url_from_id(content_type, content_id) if content_type and content_id else ""
+        action = "unfavorite" if is_delete else "favorite"
+        entry = {
+            "source": "zhihu",
+            "title": "",
+            "url": content_url,
+            "type": content_type,
+            "content_id": content_id,
+            "favlist_id": favlist_id,
+            "event_kind": action,
+            "via": "extension_post",
+        }
+        event_type = "zhihu_fav" if action == "favorite" else "zhihu_unfav"
+        out.append((event_type, entry, _dedup_key(event_type, content_url or favlist_id, content_id)))
+        return out
+
+    fm = _ZHIHU_FOLLOW_URL.search(url)
+    if fm:
+        target_token = fm.group(1)
+        is_question = "/questions/" in url
+        target_url = (
+            f"https://www.zhihu.com/question/{target_token}"
+            if is_question
+            else f"https://www.zhihu.com/people/{target_token}"
+        )
+        action = "unfollow" if is_delete else "follow"
+        entry = {
+            "source": "zhihu",
+            "title": str(params.get("name") or target_token),
+            "url": target_url,
+            "target_token": target_token,
+            "is_question": is_question,
+            "event_kind": action,
+            "via": "extension_post",
+        }
+        event_type = "zhihu_follow" if action == "follow" else "zhihu_unfollow"
+        out.append((event_type, entry, _dedup_key(event_type, target_url)))
+        return out
+
+    return out
+
+
+def _zhihu_content_url_from_id(content_type: str, content_id: str) -> str:
+    """根据 content_type + id 构造知乎内容公开 URL。"""
+    if not content_id:
+        return ""
+    ct = (content_type or "").lower().rstrip("s")  # answers→answer, articles→article, pins→pin
+    if ct == "article":
+        return f"https://zhuanlan.zhihu.com/p/{content_id}"
+    if ct == "pin":
+        return f"https://www.zhihu.com/pin/{content_id}"
+    if ct == "answer":
+        return f"https://www.zhihu.com/answer/{content_id}"
+    return ""
 
 
 def _parse_zhihu_api(url: str, body: dict[str, Any]) -> list[tuple[str, dict[str, Any], str]]:

@@ -4,8 +4,14 @@ from osint_toolkit.ingest.browser_sync import build_sync_pages
 
 
 def test_zhihu_only_pages():
+    """知乎 probe 页已启用：应生成动态/收藏/回答/文章 4 个页面。"""
     pages = build_sync_pages(platforms=("zhihu",), zhihu_token="sankichu")
-    assert pages == []
+    assert len(pages) == 4
+    urls = [p["url"] for p in pages]
+    assert any("people/sankichu/activities" in u for u in urls)
+    assert any("people/sankichu/collections" in u for u in urls)
+    assert any("people/sankichu/answers" in u for u in urls)
+    assert any("people/sankichu/posts" in u for u in urls)
 
 
 def test_bilibili_only_pages():

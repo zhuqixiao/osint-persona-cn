@@ -17,6 +17,7 @@ from osint_toolkit.ingest.bilibili_account import (
 from osint_toolkit.ingest.browser import ingest_browser_history
 from osint_toolkit.ingest.likes import list_recognition_records
 from osint_toolkit.ingest.zhihu_account import (
+    ingest_activities,
     ingest_browsing,
     ingest_followees,
     ingest_member_answers,
@@ -207,6 +208,12 @@ async def ingest_zhihu() -> dict[str, Any]:
         warnings.append(f"浏览记录: {exc}")
 
     browse_edge = browsing
+
+    activities: list[dict] = []
+    try:
+        activities, _act_key = await ingest_activities()
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"动态流: {exc}")
 
     synthetic: list[dict] = []
     synthetic = build_synthetic_activities(

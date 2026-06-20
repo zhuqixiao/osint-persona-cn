@@ -177,6 +177,7 @@ search:
   zhihu_search_pages: 5
   zhihu_expand_answers: true
   zhihu_expand_question_top: 15
+  zhihu_try_activities: false      # 尝试拉取 activities 动态流（HttpClient 常空；Playwright 补洞页可拦截）
   zhihu_answers_hot_top: 10      # 每题高赞/高票回答条数
   zhihu_answers_recent_top: 4    # 每题额外收录的最新/近期回答
   zhihu_answers_per_question: 14  # 单题回答总上限（hot + recent 去重后）

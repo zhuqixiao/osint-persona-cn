@@ -30,8 +30,17 @@ def test_build_sync_pages_requires_ids():
     pages = build_sync_pages(platforms=("bilibili", "zhihu"), bilibili_mid="123", zhihu_token="abc")
     urls = [p["url"] for p in pages]
     assert any("space.bilibili.com/123" in u for u in urls)
-    assert not any("people/abc" in u for u in urls)
-    assert "https://www.zhihu.com/recent-viewed" not in urls
+    # 知乎 probe 页已启用，应生成 people/abc URL
+    assert any("people/abc" in u for u in urls)
+    assert any("people/abc/activities" in u for u in urls)
+    assert any("people/abc/collections" in u for u in urls)
+
+
+def test_build_sync_pages_no_zhihu_token():
+    """无 zhihu_token 时不应生成知乎 probe 页（build_sync_pages 检查 zhihu_token 非空）。"""
+    pages = build_sync_pages(platforms=("bilibili", "zhihu"), bilibili_mid="123", zhihu_token="")
+    urls = [p["url"] for p in pages]
+    assert not any("people/" in u for u in urls)
 
 
 def test_capture_accumulator_dedup(tmp_path, monkeypatch):
