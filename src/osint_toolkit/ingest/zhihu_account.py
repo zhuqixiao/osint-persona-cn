@@ -329,9 +329,111 @@ async def ingest_followees(limit: int = 500) -> list[dict]:
 
 
 async def ingest_browsing(limit: int = 500) -> tuple[list[dict], dict[str, Any]]:
-    """浏览记录：仅 Edge 历史（官方浏览 API 已废弃）。"""
+    """浏览记录：优先调 /api/v4/unify-consumption/read_history API，回退 Edge 历史。
+
+    2024-11 发现知乎 /recent-viewed 页面实际调用
+    /api/v4/unify-consumption/read_history 端点（HttpClient 可直接调），
+    每页 20 条，offset 翻页，含 read_time 时间戳。
+    """
+    api_fresh, api_meta = await _ingest_browsing_via_api(limit=limit)
+    if api_meta.get("source") == "read_history_api" and api_fresh:
+        # API 成功，也补充 Edge 历史中 API 没覆盖的
+        edge_fresh = ingest_zhihu_browse_from_edge(limit=limit)
+        combined = api_fresh + [e for e in edge_fresh if e.get("url") not in {f.get("url") for f in api_fresh}]
+        return combined, {**api_meta, "edge_supplement": len(edge_fresh)}
+    # API 失败或空，回退 Edge 历史
     fresh = ingest_zhihu_browse_from_edge(limit=limit)
     return fresh, {"api_endpoint": None, "bootstrap_count": 0, "source": "edge_history"}
+
+
+async def _ingest_browsing_via_api(limit: int = 500) -> tuple[list[dict], dict[str, Any]]:
+    """通过 /api/v4/unify-consumption/read_history 拉取浏览历史。"""
+    client = HttpClient()
+    token = await _url_token(client)
+    if not token:
+        return [], {"source": "no_token"}
+    section = _zhihu_section()
+    seen_urls = sync_state._string_set(section.get("browsing_urls", []))
+    results: list[dict] = []
+    seen: set[str] = set()
+    offset = 0
+    total_count = 0
+    try:
+        while len(results) < limit:
+            url = (
+                f"https://www.zhihu.com/api/v4/unify-consumption/read_history"
+                f"?offset={offset}&limit=20"
+            )
+            resp = await client.get(url, headers={"Referer": "https://www.zhihu.com/recent-viewed"})
+            if resp.status_code != 200:
+                break
+            payload = resp.json()
+            batch = iter_api_data_items(payload.get("data"))
+            if not batch:
+                break
+            for item in batch:
+                entry = _parse_read_history_item(item)
+                if not entry or entry["url"] in seen:
+                    continue
+                seen.add(entry["url"])
+                results.append(entry)
+                if len(results) >= limit:
+                    break
+            paging = payload.get("paging") or {}
+            if paging.get("is_end"):
+                break
+            total_count = int(paging.get("totals") or total_count)
+            offset += 20
+            if offset > 1000:
+                break
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("zhihu read_history API failed: %s", exc)
+        return [], {"source": "error", "error": str(exc)}
+    if not results:
+        return [], {"source": "empty"}
+    fresh = sync_state.filter_new_by_urls(results, seen_urls)
+    for entry in fresh:
+        url = str(entry.get("url") or "")
+        log_event_deduped("zhihu_browse", entry, f"zhihu_browse|{url}")
+    _persist_zhihu(browsing=results)
+    logger.info("zhihu read_history: %d total, %d fresh (api_total=%d)", len(results), len(fresh), total_count)
+    return fresh, {"source": "read_history_api", "api_total": total_count, "fetched": len(results)}
+
+
+def _parse_read_history_item(item: dict[str, Any]) -> dict | None:
+    """解析 /api/v4/unify-consumption/read_history 返回的单条记录。
+
+    数据结构：{card_type: "single_card", data: {header, content, action, extra, matrix}}
+    - action.url: 内容 URL（如 question/.../answer/...）
+    - header.title: 标题
+    - content.summary: 摘要
+    - content.author_name: 作者
+    - extra.content_type: answer/question/article/profile
+    - extra.read_time: Unix 时间戳
+    """
+    inner = item.get("data") or item
+    if not isinstance(inner, dict):
+        return None
+    action = inner.get("action") or {}
+    url = str(action.get("url") or "")
+    if not url.startswith("http"):
+        return None
+    header = inner.get("header") or {}
+    content = inner.get("content") or {}
+    extra = inner.get("extra") or {}
+    title = str(header.get("title") or content.get("summary") or "")[:200]
+    if not title:
+        title = "未命名内容"
+    return {
+        "source": "zhihu",
+        "title": title,
+        "url": url,
+        "event_kind": "browse",
+        "via": "read_history_api",
+        "author": str(content.get("author_name") or ""),
+        "content_type": str(extra.get("content_type") or ""),
+        "read_time": extra.get("read_time"),
+    }
 
 
 def ingest_zhihu_browse_from_edge(*, since_days: int = 90, limit: int = 200) -> list[dict]:
@@ -487,8 +589,8 @@ def zhihu_layer_status(
             "endpoint": None,
             "bootstrap_count": 0,
             "edge_count": browse_edge or browse_count,
-            "layer": "edge",
-            "note": "Cookie 同步仅导入 Edge 知乎 URL；日常浏览请用扩展",
+            "layer": "read_history_api",
+            "note": "通过 /api/v4/unify-consumption/read_history 获取浏览历史；Edge 历史作为补充",
         },
         "activity": {
             "status": activity_status,

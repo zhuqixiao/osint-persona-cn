@@ -28,6 +28,7 @@
     /zhihu\.com\/api\/v4\/.*record_viewed/i,
     /zhihu\.com\/api\/v4\/.*viewed/i,
     /zhihu\.com\/api\/v3\/moments\/.*\/activities/i,
+    /zhihu\.com\/api\/v4\/unify-consumption\/read_history/i,
     /api\.github\.com\/graphql/i,
     /github\.com\/.*\/starred/i,
   ];

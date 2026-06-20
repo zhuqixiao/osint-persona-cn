@@ -16,7 +16,7 @@ def test_zhihu_layer_status_skip_deprecated_apis():
     assert status["votes"]["status"] == "skip"
     assert status["votes"]["layer"] == "extension_post"
     assert status["browse"]["status"] == "empty"
-    assert status["browse"]["layer"] == "edge"
+    assert status["browse"]["layer"] == "read_history_api"
     assert status["activity"]["status"] == "skip"
     assert status["activity"]["layer"] == "skip"
 

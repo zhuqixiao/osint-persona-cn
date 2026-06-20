@@ -185,6 +185,29 @@ def test_parse_zhihu_follow_question_post():
     assert "question/12345" in rows[0][1]["url"]
 
 
+def test_parse_zhihu_read_history():
+    """扩展拦截浏览历史 API 响应。"""
+    body = {
+        "data": [
+            {
+                "card_type": "single_card",
+                "data": {
+                    "header": {"title": "测试问题标题"},
+                    "content": {"author_name": "作者", "summary": "摘要"},
+                    "action": {"url": "https://www.zhihu.com/question/789/answer/123"},
+                    "extra": {"content_type": "answer", "read_time": 1781930141},
+                },
+            }
+        ]
+    }
+    rows = parse_api_capture("https://www.zhihu.com/api/v4/unify-consumption/read_history?offset=0&limit=20", body)
+    assert len(rows) == 1
+    assert rows[0][0] == "zhihu_browse"
+    assert rows[0][1]["url"] == "https://www.zhihu.com/question/789/answer/123"
+    assert rows[0][1]["title"] == "测试问题标题"
+    assert rows[0][1]["via"] == "extension"
+
+
 def test_page_session_min_duration():
     rows = normalize_extension_payload(
         {"kind": "page_session", "url": "https://www.bilibili.com/video/BV1", "title": "t", "duration_ms": 1000}

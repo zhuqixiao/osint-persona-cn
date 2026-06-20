@@ -482,6 +482,16 @@ def _parse_zhihu_api(url: str, body: dict[str, Any]) -> list[tuple[str, dict[str
         if out:
             return out
 
+    if "read_history" in url:
+        for item in iter_api_data_items(body.get("data")):
+            from osint_toolkit.ingest.zhihu_account import _parse_read_history_item
+
+            entry = _parse_read_history_item(item)
+            if entry:
+                entry["via"] = "extension"
+                out.append(("zhihu_browse", entry, _dedup_key("zhihu_browse", entry["url"])))
+        return out
+
     if "footprints" in url or "browsing" in url:
         for item in iter_api_data_items(body.get("data")):
             target = item.get("target") or item

@@ -33,6 +33,7 @@ CAPTURE_URL_PATTERNS: tuple[str, ...] = (
     r"zhihu\.com/api/v4/.*record_viewed",
     r"zhihu\.com/api/v4/.*viewed",
     r"zhihu\.com/api/v3/moments/.*/activities",
+    r"zhihu\.com/api/v4/unify-consumption/read_history",
     r"zhihu\.com/api/v4/(answers|articles|pins)/\d+/voters",
     r"zhihu\.com/api/v4/favlists/items",
     r"zhihu\.com/api/v4/(members|questions)/[^/]+/followers",
