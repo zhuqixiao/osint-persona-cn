@@ -3436,7 +3436,13 @@ function initFloatingNav() {
     });
   });
   nav.querySelector(".floating-nav-top")?.addEventListener("click", () => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    const target = tabsEl || document.querySelector(".workspace-panel-tabs");
+    if (target) {
+      const rect = target.getBoundingClientRect();
+      window.scrollTo({ top: window.scrollY + rect.top - 8, behavior: "smooth" });
+    } else {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   });
   window.addEventListener("scroll", checkVisibility, { passive: true });
   checkVisibility();
