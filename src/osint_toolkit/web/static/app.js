@@ -2232,6 +2232,7 @@ async function resumeSearchRun(runId) {
 
 async function focusSearchTask(runId) {
   if (!runId) return;
+  if (searchTaskRegistry.focusedRunId === runId) return;
   const panel = document.getElementById("search-task-panel");
   panel?.setAttribute("open", "");
   await resumeSearchRun(runId);
@@ -3394,6 +3395,60 @@ function applySearchProfile(profileId, catalogById, { syncSources = true } = {})
   void refreshSourceChipStatuses();
 }
 
+function initFloatingNav() {
+  const nav = document.getElementById("floating-nav");
+  if (!nav) return;
+  const tabsEl = document.querySelector(".workspace-panel-tabs");
+  const panelMap = {
+    "workspace-panel-results": "results",
+    "workspace-panel-report": "report",
+    "workspace-panel-research": "research",
+  };
+  const panelIds = Object.keys(panelMap);
+  function getActivePanel() {
+    const active = document.querySelector(".workspace-panel-tab.active");
+    return active ? active.dataset.panel : "results";
+  }
+  function syncActiveBtn() {
+    const active = getActivePanel();
+    nav.querySelectorAll(".floating-nav-btn[data-target]").forEach((btn) => {
+      const panelId = btn.dataset.target;
+      const panelName = panelMap[panelId];
+      btn.classList.toggle("active", panelName === active);
+    });
+  }
+  function checkVisibility() {
+    if (!tabsEl) return;
+    const rect = tabsEl.getBoundingClientRect();
+    nav.classList.toggle("visible", rect.bottom < 0);
+  }
+  nav.querySelectorAll(".floating-nav-btn[data-target]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const panelId = btn.dataset.target;
+      const panelEl = document.getElementById(panelId);
+      if (!panelEl) return;
+      const panelName = panelMap[panelId];
+      const tabBtn = document.querySelector(`.workspace-panel-tab[data-panel="${panelName}"]`);
+      if (tabBtn && !tabBtn.classList.contains("active")) tabBtn.click();
+      const tabsRect = tabsEl ? tabsEl.getBoundingClientRect() : null;
+      const targetY = tabsRect ? window.scrollY + tabsRect.bottom : panelEl.getBoundingClientRect().top + window.scrollY;
+      window.scrollTo({ top: targetY, behavior: "smooth" });
+    });
+  });
+  nav.querySelector(".floating-nav-top")?.addEventListener("click", () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+  window.addEventListener("scroll", checkVisibility, { passive: true });
+  checkVisibility();
+  syncActiveBtn();
+  const observer = new MutationObserver(syncActiveBtn);
+  const activeTab = document.querySelector(".workspace-panel-tab.active");
+  if (activeTab) observer.observe(activeTab, { attributes: true, attributeFilter: ["class"] });
+  document.querySelectorAll(".workspace-panel-tab").forEach((tab) => {
+    observer.observe(tab, { attributes: true, attributeFilter: ["class"] });
+  });
+}
+
 function initWorkspace(profileCatalog, sourceCatalog) {
   const form = document.getElementById("search-form");
   if (!form) return;
@@ -3451,6 +3506,8 @@ function initWorkspace(profileCatalog, sourceCatalog) {
   } else if (getActiveResearchRunId()) {
     void loadRunIntoWorkspace(getActiveResearchRunId());
   }
+
+  initFloatingNav();
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();

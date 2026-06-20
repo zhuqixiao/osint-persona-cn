@@ -2813,3 +2813,65 @@ details[open] summary { color: var(--accent); margin-bottom: 0.5rem; }
 .toast-host {
   pointer-events: none;
 }
+
+/* Floating navigation */
+.floating-nav {
+  position: fixed;
+  right: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  z-index: 900;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.floating-nav.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.floating-nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 50%;
+  border: 1px solid var(--border, #d0d5dd);
+  background: var(--bg-card, #fff);
+  color: var(--text, #1a1a2e);
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  transition: background 0.15s, box-shadow 0.15s, transform 0.15s;
+  line-height: 1;
+  padding: 0;
+}
+.floating-nav-btn:hover {
+  background: var(--primary, #6366f1);
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(99,102,241,0.25);
+  transform: scale(1.08);
+}
+.floating-nav-btn.active {
+  background: var(--primary, #6366f1);
+  color: #fff;
+  border-color: var(--primary, #6366f1);
+}
+.floating-nav-divider {
+  width: 1.2rem;
+  height: 1px;
+  background: var(--border, #d0d5dd);
+  margin: 0.15rem auto;
+}
+.floating-nav-top {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+@media (max-width: 768px) {
+  .floating-nav { right: 0.5rem; }
+  .floating-nav-btn { width: 1.8rem; height: 1.8rem; font-size: 0.65rem; }
+}
