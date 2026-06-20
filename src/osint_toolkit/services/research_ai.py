@@ -10,7 +10,7 @@ from osint_toolkit.ai.steering import build_system_prompt
 from osint_toolkit.auth.paths import get_data_dir
 from osint_toolkit.feedback.store import FeedbackStore
 from osint_toolkit.persona.context import maybe_load_persona_context
-from osint_toolkit.research.tree import add_node, load_tree
+from osint_toolkit.research.tree import add_node, load_tree, save_tree
 from osint_toolkit.services.runs import show_run
 
 
@@ -173,4 +173,63 @@ def suggest_queries(*, run_id: str | None = None, tree_id: str | None = None) ->
             queries = []
     except Exception:  # noqa: BLE001
         queries = [f"{base_query} 深度分析", f"{base_query} 实践案例"] if base_query else []
+    if tree_id and queries:
+        try:
+            tree = load_tree(tree_id)
+            tree.setdefault("meta", {})["suggested_queries"] = queries
+            from datetime import UTC, datetime
+
+            tree["meta"]["suggested_queries_at"] = datetime.now(UTC).isoformat()
+            save_tree(tree)
+        except (FileNotFoundError, Exception):  # noqa: BLE001
+            pass
     return {"ok": True, "queries": queries}
+
+
+def summarize_tree(tree_id: str) -> dict[str, Any]:
+    """对整棵研究树做跨轮次 AI 综合归纳，生成根级 insight 节点。"""
+    try:
+        tree = load_tree(tree_id)
+    except FileNotFoundError as exc:
+        return {"ok": False, "error": str(exc)}
+    insights = [n["payload"] for n in tree.get("nodes") or [] if n.get("kind") == "insight" and n.get("payload")]
+    search_titles = [n["title"] for n in tree.get("nodes") or [] if n.get("kind") == "search"]
+    if not insights and not search_titles:
+        return {"ok": False, "error": "研究树暂无搜罗或要点可归纳"}
+    context_parts = [f"研究主题: {tree.get('title', '')}"]
+    if search_titles:
+        context_parts.append("已完成的搜罗轮次:\n" + "\n".join(f"- {t}" for t in search_titles))
+    if insights:
+        context_parts.append("已有要点归纳:\n" + "\n".join(insights[:10]))
+    context = "\n\n".join(context_parts)
+    persona_block = _persona_prompt_block()
+    if persona_block:
+        context = f"{persona_block}\n\n{context}"
+    try:
+        client = DeepSeekClient()
+        persona_ctx = maybe_load_persona_context()
+        text = client.chat(
+            messages=[
+                {
+                    "role": "system",
+                    "content": build_system_prompt(
+                        task="研究树全貌归纳",
+                        persona_brief=persona_ctx.brief if persona_ctx else "",
+                    )
+                    + " 综合多轮搜罗结果，给出 3-6 条跨轮次核心发现。每条一行，简洁可执行。",
+                },
+                {"role": "user", "content": context},
+            ]
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+    root_id = tree["nodes"][0]["id"] if tree.get("nodes") else None
+    node = add_node(
+        tree_id,
+        parent_id=root_id,
+        kind="insight",
+        title="全树归纳",
+        payload=text.strip(),
+        meta={"type": "tree_summary"},
+    )
+    return {"ok": True, "node": node, "insight": text.strip()}

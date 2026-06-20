@@ -3,27 +3,35 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from osint_toolkit.models.intel_item import IntelItem
 from osint_toolkit.storage.sqlite import connect
 
+logger = logging.getLogger(__name__)
+
 
 def save_item(item: IntelItem) -> None:
     conn = connect()
-    data = item.model_dump()
-    conn.execute(
-        "INSERT OR REPLACE INTO intel_items (id, source, type, url, title, content, data_json) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (item.id, item.source, item.type, item.url, item.title, item.content, json.dumps(data, ensure_ascii=False)),
-    )
-    conn.execute("DELETE FROM intel_fts WHERE item_id = ?", (item.id,))
-    conn.execute(
-        "INSERT INTO intel_fts (item_id, title, content, summary) VALUES (?, ?, ?, ?)",
-        (item.id, item.title, item.content, item.summary or ""),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        existing = conn.execute("SELECT id FROM intel_items WHERE url = ?", (item.url,)).fetchone()
+        if existing and existing["id"] != item.id:
+            item.id = existing["id"]
+        data = item.model_dump()
+        conn.execute(
+            "INSERT OR REPLACE INTO intel_items (id, source, type, url, title, content, data_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (item.id, item.source, item.type, item.url, item.title, item.content, json.dumps(data, ensure_ascii=False)),
+        )
+        conn.execute("DELETE FROM intel_fts WHERE item_id = ?", (item.id,))
+        conn.execute(
+            "INSERT INTO intel_fts (item_id, title, content, summary) VALUES (?, ?, ?, ?)",
+            (item.id, item.title, item.content, item.summary or ""),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def recall(query: str, limit: int = 20) -> list[IntelItem]:
@@ -45,7 +53,8 @@ def recall(query: str, limit: int = 20) -> list[IntelItem]:
             (fts_query, limit),
         ).fetchall()
         items = [IntelItem.from_dict(json.loads(row["data_json"])) for row in rows]
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("FTS recall failed, falling back to LIKE: %s", exc)
         items = []
     if len(items) < limit:
         seen = {i.id for i in items}
@@ -63,6 +72,40 @@ def recall(query: str, limit: int = 20) -> list[IntelItem]:
                 break
     conn.close()
     return items
+
+
+def delete_item(item_id: str) -> bool:
+    """删除单条知识库条目。返回是否成功删除。"""
+    conn = connect()
+    try:
+        cur = conn.execute("SELECT 1 FROM intel_items WHERE id = ?", (item_id,))
+        if not cur.fetchone():
+            return False
+        conn.execute("DELETE FROM intel_fts WHERE item_id = ?", (item_id,))
+        conn.execute("DELETE FROM intel_items WHERE id = ?", (item_id,))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def delete_items(item_ids: list[str]) -> int:
+    """批量删除知识库条目。返回实际删除条数。"""
+    if not item_ids:
+        return 0
+    conn = connect()
+    try:
+        deleted = 0
+        for item_id in item_ids:
+            cur = conn.execute("SELECT 1 FROM intel_items WHERE id = ?", (item_id,))
+            if cur.fetchone():
+                conn.execute("DELETE FROM intel_fts WHERE item_id = ?", (item_id,))
+                conn.execute("DELETE FROM intel_items WHERE id = ?", (item_id,))
+                deleted += 1
+        conn.commit()
+        return deleted
+    finally:
+        conn.close()
 
 
 def log_event(event_type: str, data: dict[str, Any]) -> None:

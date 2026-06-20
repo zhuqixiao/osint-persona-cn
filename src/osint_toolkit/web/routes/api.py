@@ -13,10 +13,13 @@ from osint_toolkit.research.tree import (
     add_node,
     attach_search_node,
     create_tree,
+    delete_node,
+    delete_tree,
     find_search_node_id_for_run,
     list_trees,
     load_tree,
     patch_node,
+    rename_tree,
     tree_to_markmap,
 )
 from osint_toolkit.services import (
@@ -63,6 +66,7 @@ from osint_toolkit.web.schemas import (
     ImportCookiesRequest,
     IngestAicuJsonRequest,
     IngestBrowserRequest,
+    KnowledgeBatchDeleteRequest,
     PersonaRollbackRequest,
     PromptUpdate,
     ResearchInsightRequest,
@@ -70,6 +74,7 @@ from osint_toolkit.web.schemas import (
     ResearchNodePatch,
     ResearchSuggestRequest,
     ResearchTreeCreate,
+    ResearchTreeRename,
     RunsBatchDeleteRequest,
     RunsCleanupRequest,
     SaveRequest,
@@ -525,6 +530,27 @@ async def api_knowledge_items(
         "count": len(items),
         "total": await asyncio.to_thread(knowledge.count_items, source=source),
     }
+
+
+@router.delete("/knowledge/items/{item_id}")
+async def api_knowledge_delete_item(item_id: str) -> dict[str, Any]:
+    deleted = await asyncio.to_thread(knowledge.delete_item, item_id)
+    if not deleted:
+        raise HTTPException(404, detail="item not found")
+    return {"item_id": item_id, "deleted": True}
+
+
+@router.post("/knowledge/items/delete")
+async def api_knowledge_batch_delete(body: KnowledgeBatchDeleteRequest) -> dict[str, Any]:
+    deleted = await asyncio.to_thread(knowledge.delete_items, body.item_ids)
+    return {"deleted": deleted, "requested": len(body.item_ids)}
+
+
+@router.get("/knowledge/topics")
+async def api_knowledge_topics(limit: int = 50) -> dict[str, Any]:
+    limit = max(1, min(limit, 200))
+    topics = await asyncio.to_thread(knowledge.list_topics, limit=limit)
+    return {"topics": topics, "count": len(topics)}
 
 
 @router.post("/ask")
@@ -1188,6 +1214,38 @@ async def api_research_patch_node(tree_id: str, node_id: str, body: ResearchNode
     return {"node": node}
 
 
+@router.delete("/research/trees/{tree_id}")
+async def api_research_delete_tree(tree_id: str) -> dict[str, Any]:
+    tree_id = _validated_tree_id(tree_id)
+    try:
+        await asyncio.to_thread(delete_tree, tree_id)
+    except FileNotFoundError:
+        raise HTTPException(404, detail="tree not found") from None
+    return {"tree_id": tree_id, "deleted": True}
+
+
+@router.patch("/research/trees/{tree_id}")
+async def api_research_rename_tree(tree_id: str, body: ResearchTreeRename) -> dict[str, Any]:
+    tree_id = _validated_tree_id(tree_id)
+    try:
+        tree = await asyncio.to_thread(rename_tree, tree_id, body.title)
+    except FileNotFoundError:
+        raise HTTPException(404, detail="tree not found") from None
+    return {"tree": tree}
+
+
+@router.delete("/research/trees/{tree_id}/nodes/{node_id}")
+async def api_research_delete_node(tree_id: str, node_id: str) -> dict[str, Any]:
+    tree_id = _validated_tree_id(tree_id)
+    try:
+        await asyncio.to_thread(delete_node, tree_id, node_id)
+    except FileNotFoundError:
+        raise HTTPException(404, detail="tree or node not found") from None
+    except ValueError as exc:
+        raise HTTPException(400, detail=str(exc)) from exc
+    return {"node_id": node_id, "deleted": True}
+
+
 @router.post("/research/suggest-queries")
 async def api_research_suggest(body: ResearchSuggestRequest) -> dict[str, Any]:
     return await asyncio.to_thread(
@@ -1207,6 +1265,15 @@ async def api_research_insight(body: ResearchInsightRequest) -> dict[str, Any]:
     )
     if not result.get("ok"):
         raise HTTPException(500, detail=result.get("error") or "insight failed")
+    return result
+
+
+@router.post("/research/trees/{tree_id}/summarize")
+async def api_research_summarize_tree(tree_id: str) -> dict[str, Any]:
+    tree_id = _validated_tree_id(tree_id)
+    result = await asyncio.to_thread(research_ai.summarize_tree, tree_id)
+    if not result.get("ok"):
+        raise HTTPException(500, detail=result.get("error") or "summarize failed")
     return result
 
 

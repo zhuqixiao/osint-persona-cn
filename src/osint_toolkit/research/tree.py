@@ -235,6 +235,55 @@ def mark_broken_run_for_trees(run_id: str) -> int:
     return updated
 
 
+def delete_tree(tree_id: str) -> None:
+    """删除整棵研究树。"""
+    path = _tree_path(tree_id)
+    if not path.exists():
+        raise FileNotFoundError(f"tree not found: {tree_id}")
+    path.unlink()
+
+
+def rename_tree(tree_id: str, title: str) -> dict[str, Any]:
+    """重命名研究树。"""
+    tree = load_tree(tree_id)
+    tree["title"] = title
+    tree["updated_at"] = _now()
+    save_tree(tree)
+    return tree
+
+
+def _collect_descendants(tree: dict[str, Any], node_id: str) -> set[str]:
+    """收集 node_id 的所有后代节点 id（不含自身）。"""
+    by_parent: dict[str, list[dict[str, Any]]] = {}
+    for n in tree.get("nodes") or []:
+        by_parent.setdefault(n.get("parent_id"), []).append(n)
+    result: set[str] = set()
+    stack = list(by_parent.get(node_id) or [])
+    while stack:
+        node = stack.pop()
+        nid = node["id"]
+        if nid not in result:
+            result.add(nid)
+            stack.extend(by_parent.get(nid) or [])
+    return result
+
+
+def delete_node(tree_id: str, node_id: str) -> dict[str, Any]:
+    """删除节点及其所有后代。根 topic 节点不可删除。"""
+    tree = load_tree(tree_id)
+    node = _find_node(tree, node_id)
+    if not node:
+        raise FileNotFoundError(f"node not found: {node_id}")
+    if node["kind"] == "topic":
+        raise ValueError("cannot delete root topic node")
+    descendants = _collect_descendants(tree, node_id)
+    remove_ids = {node_id} | descendants
+    tree["nodes"] = [n for n in tree["nodes"] if n["id"] not in remove_ids]
+    tree["updated_at"] = _now()
+    save_tree(tree)
+    return node
+
+
 def tree_to_markmap(tree: dict[str, Any]) -> str:
     """Export tree as Markmap-compatible Markdown."""
     nodes = tree.get("nodes") or []

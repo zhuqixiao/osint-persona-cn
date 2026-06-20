@@ -1485,6 +1485,8 @@ function renderResearchActions() {
   const runHint = runId
     ? `<span class="muted research-actions-hint">当前轮次：${escapeHtml((selected?.title || runId).slice(0, 36))}</span>`
     : `<span class="muted research-actions-hint">请先在研究树中点击一轮搜罗</span>`;
+  const canDelete = selected && selected.kind !== "topic";
+  const treeSearchCount = (workspaceSession.currentTree?.nodes || []).filter((n) => n.kind === "search").length;
   actions.innerHTML = `
     ${runHint}
     <div class="research-actions-btns">
@@ -1492,11 +1494,33 @@ function renderResearchActions() {
       <button type="button" class="btn btn-sm btn-secondary" id="btn-research-fork" ${runId ? "" : "disabled"} title="继承上轮报告与反馈，细化关键词再搜罗">分叉深挖</button>
       <button type="button" class="btn btn-sm btn-secondary" id="btn-research-insight" ${runId && hasTree ? "" : "disabled"} title="AI 归纳本轮要点（需 DeepSeek）">归纳要点</button>
       <button type="button" class="btn btn-sm btn-ghost" id="btn-research-suggest" ${runId ? "" : "disabled"} title="生成后续搜罗建议（需 DeepSeek）">建议查询</button>
+      <button type="button" class="btn btn-sm btn-ghost" id="btn-research-summarize" ${treeSearchCount >= 2 && hasTree ? "" : "disabled"} title="AI 综合多轮搜罗做全树归纳（需 2+ 轮搜罗）">全树归纳</button>
+      <button type="button" class="btn btn-sm btn-danger" id="btn-research-delete-node" ${canDelete ? "" : "disabled"} title="删除当前选中节点及其子节点">删除节点</button>
     </div>`;
   document.getElementById("btn-research-note")?.addEventListener("click", () => toggleResearchNoteForm(true));
   document.getElementById("btn-research-fork")?.addEventListener("click", () => forkSearchFromRun(runId));
   document.getElementById("btn-research-insight")?.addEventListener("click", () => void generateResearchInsight(runId));
   document.getElementById("btn-research-suggest")?.addEventListener("click", () => void suggestResearchQueries(runId));
+  document.getElementById("btn-research-summarize")?.addEventListener("click", () => {
+    if (!workspaceSession.treeId) return;
+    const btn = document.getElementById("btn-research-summarize");
+    if (btn) { btn.disabled = true; btn.textContent = "归纳中..."; }
+    api("POST", `/api/research/trees/${workspaceSession.treeId}/summarize`)
+      .then((res) => {
+        toast("全树归纳完成");
+        return refreshResearchTree(res.node?.id);
+      })
+      .catch((e) => toast(e.message || "归纳失败", "error"))
+      .finally(() => { if (btn) { btn.disabled = false; btn.textContent = "全树归纳"; } });
+  });
+  document.getElementById("btn-research-delete-node")?.addEventListener("click", () => {
+    const nodeId = workspaceSession.selectedNodeId;
+    if (!nodeId || !workspaceSession.treeId) return;
+    if (!confirm("确认删除该节点及其所有子节点？")) return;
+    api("DELETE", `/api/research/trees/${workspaceSession.treeId}/nodes/${nodeId}`)
+      .then(() => { workspaceSession.selectedNodeId = null; return refreshResearchTree(); })
+      .catch((e) => toast(e.message || "删除失败", "error"));
+  });
 }
 
 const RUN_STATUS_LABELS = {
@@ -1975,6 +1999,8 @@ function setActiveSearchRunId(runId) {
 
 function setResearchTreeId(treeId) {
   workspaceSession.treeId = treeId || null;
+  const delBtn = document.getElementById("btn-research-delete-tree");
+  if (delBtn) delBtn.classList.toggle("hidden", !treeId);
   if (treeId) {
     sessionStorage.setItem("researchTreeId", treeId);
     workspaceSession.parentNodeId = loadStoredParentNodeId(treeId);
@@ -2038,6 +2064,19 @@ function initResearchTreeToolbar() {
     void syncResearchTreeSelect();
     void refreshResearchTree();
     showToast("已脱离当前研究树", "info");
+  });
+  document.getElementById("btn-research-delete-tree")?.addEventListener("click", () => {
+    if (!workspaceSession.treeId) return;
+    if (!confirm("确认删除整棵研究树？此操作不可恢复。")) return;
+    api("DELETE", `/api/research/trees/${workspaceSession.treeId}`)
+      .then(() => {
+        setResearchTreeId(null);
+        setWorkspaceParentNodeId(null);
+        workspaceSession.selectedNodeId = null;
+        return syncResearchTreeSelect();
+      })
+      .then(() => refreshResearchTree())
+      .catch((e) => toast(e.message || "删除失败", "error"));
   });
   document.getElementById("research-tree-select")?.addEventListener("change", (e) => {
     const id = e.target.value;
@@ -2532,6 +2571,19 @@ async function refreshResearchTree(selectedNodeId) {
       if (latest) setCurrentRunId(latest);
     }
     panel.innerHTML = buildResearchTreeHtml(tree, selectedNodeId || workspaceSession.selectedNodeId);
+    const titleEl = panel.querySelector(".research-tree-title");
+    if (titleEl) {
+      titleEl.addEventListener("dblclick", () => {
+        const newTitle = window.prompt("重命名研究树", tree.title || "");
+        if (newTitle && newTitle !== tree.title) {
+          api("PATCH", `/api/research/trees/${workspaceSession.treeId}`, { title: newTitle })
+            .then(() => refreshResearchTree())
+            .catch((e) => toast(e.message || "重命名失败", "error"));
+        }
+      });
+      titleEl.style.cursor = "pointer";
+      titleEl.title = "双击重命名";
+    }
     const focusId = selectedNodeId || workspaceSession.selectedNodeId;
     const selectedNode = focusId ? findResearchNode(tree, focusId) : null;
     showResearchNodeDetail(selectedNode);

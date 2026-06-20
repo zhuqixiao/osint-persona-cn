@@ -77,6 +77,10 @@ class ResearchTreeCreate(BaseModel):
     query: str = ""
 
 
+class ResearchTreeRename(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+
+
 class ResearchNodeCreate(BaseModel):
     parent_id: str | None = None
     kind: str = "note"
@@ -119,6 +123,11 @@ class RunsCleanupRequest(BaseModel):
 
 class RunsBatchDeleteRequest(BaseModel):
     run_ids: list[str] = Field(default_factory=list, min_length=1, max_length=100)
+
+
+class KnowledgeBatchDeleteRequest(BaseModel):
+    item_ids: list[str] = Field(..., min_length=1, max_length=200)
+
 
 class IngestBrowserRequest(BaseModel):
     since_days: int = 90
