@@ -836,7 +836,9 @@ async def api_extension_status(lite: bool = False) -> dict[str, Any]:
 async def api_events_insights(refresh: bool = False, no_ai: bool = False) -> dict[str, Any]:
     from osint_toolkit.services import events_insights
 
-    return events_insights.get_behavior_insights(refresh=refresh, no_ai=no_ai)
+    return await asyncio.to_thread(
+        events_insights.get_behavior_insights, refresh=refresh, no_ai=no_ai
+    )
 
 
 @router.get("/events/recent")
@@ -847,7 +849,8 @@ async def api_events_recent(
     event_type: str | None = None,
     min_score: int = 0,
 ) -> dict[str, Any]:
-    return events.list_recent_events(
+    return await asyncio.to_thread(
+        events.list_recent_events,
         limit=limit,
         offset=offset,
         via=via,
