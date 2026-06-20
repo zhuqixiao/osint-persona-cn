@@ -2201,7 +2201,7 @@ async function pollUntilSearchDone(runId, resultsEl, stepsEl, reportEl, progress
         return;
       }
     } catch (err) {
-      if (err.message && !String(err.message).includes("404")) break;
+      if (err.message && String(err.message).includes("404")) break;
     }
   }
   finishSearchRun(progressUi, () => {
@@ -3217,7 +3217,6 @@ function mountSearchProgress(container, runId = "") {
   renderSearchProgressPanel(container, state);
   const timer = setInterval(() => {
     if (!container.querySelector(".search-progress")) {
-      clearInterval(timer);
       return;
     }
     renderJobProgressPanel(container, state, {

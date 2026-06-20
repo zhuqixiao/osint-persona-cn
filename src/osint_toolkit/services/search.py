@@ -575,6 +575,7 @@ async def run_search(
             artifact_name="alias_discover.json",
             ai_invoked="alias_discover" not in (disabled_ai_steps or []),
             run_id=run_id,
+            progress_detail="联网发现关联词…",
             eta_tracker=eta_tracker,
             eta_after_phase="ai_query_analyze",
         )
@@ -858,6 +859,7 @@ async def run_search(
         input_summary=f"queries={queries_used}, sources={collect_sources}, per_limit={per_limit}",
         artifact_name="items_raw.json",
         run_id=run_id,
+        progress_detail=f"多源采集（共 {collect_total} 项）…",
         eta_tracker=eta_tracker,
         eta_after_phase="dedup",
     )
