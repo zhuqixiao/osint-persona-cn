@@ -29,7 +29,6 @@ def summarize_item(
     meta = {"prompt_source": "builtin", "directives_hash": directives_hash(), "ai_invoked": False}
     if not is_step_enabled("summarize", no_ai=no_ai, disabled_steps=disabled_steps):
         return _fallback_summary(item), meta
-    client = client or DeepSeekClient()
     prompt_tpl, source = load_prompt("summarize")
     meta["prompt_source"] = source
     meta["ai_invoked"] = True
@@ -42,6 +41,7 @@ def summarize_item(
     if comments_summary:
         comments_block = f"\n\n社区观点（非事实，来自热评归纳）:\n{comments_summary[:2000]}\n"
     try:
+        client = client or DeepSeekClient()
         summary = client.chat(
             messages=[
                 {

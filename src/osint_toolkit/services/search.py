@@ -712,92 +712,96 @@ async def run_search(
         done = 0
         recent_urls: list[dict[str, str]] = []
         stop_collect = False
-        while pending and not stop_collect:
-            check_cancelled(run_id)
-            elapsed = time.perf_counter() - collect_started
-            if elapsed >= collect_timeout:
-                for task in pending:
-                    task.cancel()
-                source_warnings.append(
-                    {"source": "*", "warning": f"采集超时 ({int(collect_timeout)}s)，已终止剩余任务", "query": query}
-                )
-                break
-            wait_timeout = min(30.0, max(1.0, collect_timeout - elapsed))
-            finished_set, pending = await asyncio.wait(
-                pending, timeout=wait_timeout, return_when=asyncio.FIRST_COMPLETED
-            )
-            if not finished_set:
-                continue
-            for finished in finished_set:
-                if finished.cancelled():
-                    continue
-                try:
-                    source_name, q, group, orphan, err, task_duration = finished.result()
-                except Exception as exc:  # noqa: BLE001
-                    source_errors.append({"source": "?", "error": str(exc), "query": query})
-                    continue
-                eta_tracker.record_collect_task(source_name, task_duration)
-                for w in orphan:
-                    source_warnings.append({"source": source_name, "warning": w, "query": q})
-                done += 1
-                short_q = q if len(q) <= 36 else q[:33] + "…"
-                async with items_lock:
-                    items_found = len(shared_items)
-                if err is not None:
-                    source_errors.append({"source": source_name, "error": str(err), "query": q})
-                elif isinstance(group, list):
-                    for item in group:
-                        for warning in item.personal.pop("collector_warnings", []) or []:
-                            source_warnings.append({"source": source_name, "warning": warning, "query": q})
-                        matched = item.personal.get("matched_queries") or []
-                        if q not in matched:
-                            matched.append(q)
-                        item.personal["matched_queries"] = matched
-                    async with items_lock:
-                        shared_items.extend(group)
-                        recent_urls = _recent_url_entries(group, recent_urls)
-                        items_found = len(shared_items)
-
+        try:
+            while pending and not stop_collect:
+                check_cancelled(run_id)
                 elapsed = time.perf_counter() - collect_started
-                eta_sec = eta_tracker.remaining_sec(current_phase="collect_all", collect_done=done)
-                sample_url = ""
-                if isinstance(group, list) and group:
-                    sample_url = str(group[0].url or "")
-                preview_batch = [_preview_item(item) for item in (group or [])[:8]] if isinstance(group, list) else None
-                update_progress(
-                    run_id,
-                    "collect_all",
-                    detail=f"{_source_label(source_name)} · {short_q}（{done}/{collect_total}）",
-                    collect_done=done,
-                    collect_total=collect_total,
-                    items_found=items_found,
-                    eta_sec=eta_sec,
-                    current_url=sample_url or _collect_target_url(source_name, q),
-                    recent_urls=recent_urls,
-                    partial_items_append=preview_batch,
-                )
-                if early_stop_items > 0 and items_found >= early_stop_items:
-                    on_topic = sum(
-                        1
-                        for item in shared_items
-                        if normalize_product_key(query) in normalize_product_key(item.title + item.content)
-                        or query.lower() in (item.title + " " + item.content).lower()
+                if elapsed >= collect_timeout:
+                    for task in pending:
+                        task.cancel()
+                    source_warnings.append(
+                        {"source": "*", "warning": f"采集超时 ({int(collect_timeout)}s)，已终止剩余任务", "query": query}
                     )
-                    if on_topic >= max(10, early_stop_items // 2):
-                        stop_collect = True
-                        for task in pending:
-                            task.cancel()
-                        source_warnings.append(
-                            {
-                                "source": "*",
-                                "warning": f"已采集足够相关内容 ({items_found} 条)，提前结束",
-                                "query": query,
-                            }
-                        )
-                        break
+                    break
+                wait_timeout = min(30.0, max(1.0, collect_timeout - elapsed))
+                finished_set, pending = await asyncio.wait(
+                    pending, timeout=wait_timeout, return_when=asyncio.FIRST_COMPLETED
+                )
+                if not finished_set:
+                    continue
+                for finished in finished_set:
+                    if finished.cancelled():
+                        continue
+                    try:
+                        source_name, q, group, orphan, err, task_duration = finished.result()
+                    except Exception as exc:  # noqa: BLE001
+                        source_errors.append({"source": "?", "error": str(exc), "query": query})
+                        continue
+                    eta_tracker.record_collect_task(source_name, task_duration)
+                    for w in orphan:
+                        source_warnings.append({"source": source_name, "warning": w, "query": q})
+                    done += 1
+                    short_q = q if len(q) <= 36 else q[:33] + "…"
+                    async with items_lock:
+                        items_found = len(shared_items)
+                    if err is not None:
+                        source_errors.append({"source": source_name, "error": str(err), "query": q})
+                    elif isinstance(group, list):
+                        for item in group:
+                            for warning in item.personal.pop("collector_warnings", []) or []:
+                                source_warnings.append({"source": source_name, "warning": warning, "query": q})
+                            matched = item.personal.get("matched_queries") or []
+                            if q not in matched:
+                                matched.append(q)
+                            item.personal["matched_queries"] = matched
+                        async with items_lock:
+                            shared_items.extend(group)
+                            recent_urls = _recent_url_entries(group, recent_urls)
+                            items_found = len(shared_items)
 
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
+                    elapsed = time.perf_counter() - collect_started
+                    eta_sec = eta_tracker.remaining_sec(current_phase="collect_all", collect_done=done)
+                    sample_url = ""
+                    if isinstance(group, list) and group:
+                        sample_url = str(group[0].url or "")
+                    preview_batch = [_preview_item(item) for item in (group or [])[:8]] if isinstance(group, list) else None
+                    update_progress(
+                        run_id,
+                        "collect_all",
+                        detail=f"{_source_label(source_name)} · {short_q}（{done}/{collect_total}）",
+                        collect_done=done,
+                        collect_total=collect_total,
+                        items_found=items_found,
+                        eta_sec=eta_sec,
+                        current_url=sample_url or _collect_target_url(source_name, q),
+                        recent_urls=recent_urls,
+                        partial_items_append=preview_batch,
+                    )
+                    if early_stop_items > 0 and items_found >= early_stop_items:
+                        on_topic = sum(
+                            1
+                            for item in shared_items
+                            if normalize_product_key(query) in normalize_product_key(item.title + item.content)
+                            or query.lower() in (item.title + " " + item.content).lower()
+                        )
+                        if on_topic >= max(10, early_stop_items // 2):
+                            stop_collect = True
+                            for task in pending:
+                                task.cancel()
+                            source_warnings.append(
+                                {
+                                    "source": "*",
+                                    "warning": f"已采集足够相关内容 ({items_found} 条)，提前结束",
+                                    "query": query,
+                                }
+                            )
+                            break
+        finally:
+            if pending:
+                for task in pending:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
 
         from osint_toolkit.utils.source_notices import consolidate_source_notices
 

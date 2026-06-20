@@ -114,10 +114,10 @@ def generate_report(
 ) -> str:
     if not is_step_enabled("report", no_ai=no_ai, disabled_steps=disabled_steps):
         return _fallback_report(query, items, run_id)
-    client = client or DeepSeekClient()
     prompt_tpl, _ = load_prompt("report")
     payload = _build_report_payload(query, items)
     try:
+        client = client or DeepSeekClient()
         report = client.chat(
             messages=[
                 {

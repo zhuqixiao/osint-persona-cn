@@ -158,14 +158,11 @@ def cancel_job(job_id: str) -> bool:
         return False
     if job.get("status") == "queued" and job.get("kind") == "search":
         _remove_from_search_queue(job_id)
-        query = job.get("query", "")
-        _jobs[job_id] = {
+        _jobs[job_id].update({
             "status": "cancelled",
-            "kind": "search",
             "result": None,
             "error": "已取消",
-            "query": query,
-        }
+        })
         _jobs.move_to_end(job_id)
         set_run_status(job_id, "cancelled", error="已取消")
         _trim_jobs()
@@ -382,17 +379,29 @@ async def _execute_search(run_id: str, **kwargs: Any) -> None:
         from osint_toolkit.services.run_session import read_request
 
         if isinstance(result, dict):
-            patch_manifest(
-                run_id,
-                item_count=len(result.get("items") or []),
-                source_error_count=len(result.get("source_errors") or []),
-            )
-        req = read_request(run_id) or {}
-        tree_id = req.get("tree_id")
-        if tree_id:
-            update_search_node_status(tree_id, run_id, status=final_status)
-        set_run_status(run_id, final_status, error=error_msg)
-        finish_progress(run_id)
+            try:
+                patch_manifest(
+                    run_id,
+                    item_count=len(result.get("items") or []),
+                    source_error_count=len(result.get("source_errors") or []),
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            req = read_request(run_id) or {}
+            tree_id = req.get("tree_id")
+            if tree_id:
+                update_search_node_status(tree_id, run_id, status=final_status)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            set_run_status(run_id, final_status, error=error_msg)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            finish_progress(run_id)
+        except Exception:  # noqa: BLE001
+            pass
         _async_tasks.pop(run_id, None)
         _drain_search_queue()
 

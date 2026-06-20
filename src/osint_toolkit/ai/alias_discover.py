@@ -146,8 +146,8 @@ async def _probe_source(name: str, query: str, limit: int) -> list[IntelItem]:
     if not cls:
         return []
     try:
-        return await cls().search(query, limit=limit)
-    except Exception:  # noqa: BLE001
+        return await asyncio.wait_for(cls().search(query, limit=limit), timeout=30)
+    except (asyncio.TimeoutError, Exception):  # noqa: BLE001
         return []
 
 
@@ -167,10 +167,16 @@ async def probe_network(
     probe_sources = [s for s in probe_sources if s in _PROBE_COLLECTORS]
     if not probe_sources:
         return []
-    groups = await asyncio.gather(
-        *[_probe_source(s, query, limit) for s in probe_sources],
-        return_exceptions=True,
-    )
+    try:
+        groups = await asyncio.wait_for(
+            asyncio.gather(
+                *[_probe_source(s, query, limit) for s in probe_sources],
+                return_exceptions=True,
+            ),
+            timeout=60,
+        )
+    except asyncio.TimeoutError:
+        return []
     items: list[IntelItem] = []
     for group in groups:
         if isinstance(group, list):

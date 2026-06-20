@@ -53,13 +53,15 @@ def clear_progress(run_id: str) -> None:
 
 
 def finish_progress(run_id: str) -> None:
-    """标记完成并清理内存/磁盘进度快照。"""
+    """标记完成并清理内存进度（保留磁盘 done 状态供轮询）。"""
     if run_id in _store:
         _store[run_id]["phase"] = "done"
         _store[run_id]["detail"] = "搜罗已完成"
         _store[run_id]["percent"] = 100
         _flush_progress_disk(run_id, _store[run_id], force=True)
-    clear_progress(run_id)
+    _store.pop(run_id, None)
+    _cancelled.discard(run_id)
+    _last_disk_flush.pop(run_id, None)
 
 
 def get_progress(run_id: str) -> dict[str, Any] | None:

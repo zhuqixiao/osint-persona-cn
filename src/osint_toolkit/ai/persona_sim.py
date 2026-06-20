@@ -29,7 +29,6 @@ def simulate_items(
 ) -> list[dict]:
     if no_simulate or not is_step_enabled("persona_simulate", no_ai=no_ai, disabled_steps=disabled_steps):
         return []
-    client = client or DeepSeekClient()
     prompt_tpl, _ = load_prompt("persona_sim")
     persona_brief = load_persona_brief()
     if not persona_brief.strip():
@@ -48,6 +47,7 @@ def simulate_items(
         for i in items[:20]
     ]
     try:
+        client = client or DeepSeekClient()
         raw = client.chat(
             messages=[
                 {
