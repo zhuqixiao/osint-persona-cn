@@ -22,19 +22,27 @@ async def summarize_comments(
     top = select_top_comments(comments)
     if not top:
         return ""
+    lines: list[str] = []
+    for i, c in enumerate(top):
+        lines.append(f"{i+1}. ({c.get('likes',0)}赞) {c.get('content','')}")
+        replies = c.get("replies") or []
+        if replies:
+            for j, r in enumerate(replies[:3]):
+                lines.append(f"   {i+1}.{j+1} (回复,{r.get('likes',0)}赞) {r.get('content','')}")
+            if len(replies) > 3:
+                lines.append(f"   ... 还有 {len(replies) - 3} 条回复未展示")
     if not is_step_enabled("comment_mine", no_ai=no_ai, disabled_steps=disabled_steps):
-        lines = [f"- {c.get('content','')[:120]}" for c in top]
-        return "社区评论精选:\n" + "\n".join(lines)
+        return "社区评论精选:\n" + "\n".join(l.split(") ", 1)[-1] for l in lines if l.strip())
     client = client or DeepSeekClient()
-    prompt = "\n".join(f"{i+1}. ({c.get('likes',0)}赞) {c.get('content','')}" for i, c in enumerate(top))
+    prompt = "\n".join(lines)
     try:
         return await asyncio.to_thread(
             client.chat,
             messages=[
                 {"role": "system", "content": build_system_prompt(task="评论归纳")},
-                {"role": "user", "content": f"请归纳以下评论中的亲测、反驳、补充信息，标注为社区观点非事实:\n{prompt}"},
+                {"role": "user", "content": f"请归纳以下评论（含回复）中的亲测、反驳、补充信息，标注为社区观点非事实:\n{prompt}"},
             ],
         )
     except Exception:  # noqa: BLE001
-        lines = [f"- {c.get('content','')[:120]}" for c in top]
-        return "社区评论精选:\n" + "\n".join(lines)
+        no_ai_fallback = [f"- {l.split(') ', 1)[-1]}" for l in lines if l.strip()]
+        return "社区评论精选:\n" + "\n".join(no_ai_fallback)

@@ -694,21 +694,16 @@ class ZhihuCollector(BaseCollector):
             pages += 1
         return collected[:limit]
 
-    async def fetch_comments(self, url: str, limit: int | None = None) -> list[dict]:
-        resource = self._comment_resource(url)
-        if not resource:
-            return []
-        cfg = self._zhihu_search_cfg()
-        cfg_limit, max_pages = self._comment_limits()
-        target_limit = limit if limit is not None else cfg_limit
-        kind, rid = resource
+    async def _fetch_comments_by_order(
+        self, kind: str, rid: str, order_by: str, *, limit: int, max_pages: int
+    ) -> list[dict]:
         collected: list[dict] = []
         offset = ""
         pages = 0
-        while len(collected) < target_limit and pages < max_pages:
+        while len(collected) < limit and pages < max_pages:
             api = (
                 f"https://www.zhihu.com/api/v4/comment_v5/{kind}/{rid}/root_comment"
-                f"?order_by=score&limit=20"
+                f"?order_by={order_by}&limit=20"
             )
             if offset:
                 api += f"&offset={quote(offset)}"
@@ -729,22 +724,43 @@ class ZhihuCollector(BaseCollector):
                         "child_count": entry.get("child_comment_count", 0),
                     }
                 )
-                if len(collected) >= target_limit:
+                if len(collected) >= limit:
                     break
             paging = data.get("paging") or {}
             if paging.get("is_end") or not paging.get("next"):
                 break
             offset = str(paging.get("next") or "")
             pages += 1
-        collected.sort(key=lambda c: c.get("likes", 0), reverse=True)
-        collected = collected[:target_limit]
+        return collected
+
+    async def fetch_comments(self, url: str, limit: int | None = None) -> list[dict]:
+        resource = self._comment_resource(url)
+        if not resource:
+            return []
+        cfg = self._zhihu_search_cfg()
+        cfg_limit, max_pages = self._comment_limits()
+        target_limit = limit if limit is not None else cfg_limit
+        kind, rid = resource
+        all_comments: list[dict] = []
+        seen_ids: set[str] = set()
+        for order_by in ("score", "time"):
+            if len(all_comments) >= target_limit:
+                break
+            batch = await self._fetch_comments_by_order(kind, rid, order_by, limit=target_limit, max_pages=max_pages)
+            for entry in batch:
+                cid = entry.get("id")
+                if cid and cid not in seen_ids:
+                    seen_ids.add(cid)
+                    all_comments.append(entry)
+        all_comments.sort(key=lambda c: c.get("likes", 0), reverse=True)
+        all_comments = all_comments[:target_limit]
 
         if cfg.get("zhihu_fetch_child_comments", True):
             roots = int(cfg.get("zhihu_child_comment_roots", 10))
             child_limit = int(cfg.get("zhihu_child_comment_limit", 20))
             child_tasks = []
             targets: list[dict] = []
-            for entry in collected[:roots]:
+            for entry in all_comments[:roots]:
                 child_id = entry.get("id")
                 if not child_id or not entry.get("child_count"):
                     continue
@@ -757,4 +773,4 @@ class ZhihuCollector(BaseCollector):
                 for entry, batch in zip(targets, child_batches, strict=False):
                     if isinstance(batch, list) and batch:
                         entry["replies"] = batch
-        return collected
+        return all_comments

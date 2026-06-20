@@ -26,6 +26,11 @@ async def test_ingest_followings_parses_list(monkeypatch):
             return Resp()
 
     monkeypatch.setattr(bilibili_account, "HttpClient", lambda: FakeClient())
+    monkeypatch.setattr(
+        "osint_toolkit.ingest.bilibili_sdk.sdk_enabled",
+        lambda _k: False,
+    )
+
     async def _fake_mid(_c):
         return 99
 

@@ -37,6 +37,10 @@ def merge_comment_lists(
         prev = merged.get(key)
         if prev is None or int(row.get("likes") or 0) > int(prev.get("likes") or 0):
             merged[key] = dict(row)
+            if prev is not None and "replies" in prev and "replies" not in row:
+                merged[key]["replies"] = prev["replies"]
+        elif "replies" in row and "replies" not in prev:
+            prev["replies"] = row["replies"]
     return sorted(merged.values(), key=lambda c: int(c.get("likes") or 0), reverse=True)
 
 

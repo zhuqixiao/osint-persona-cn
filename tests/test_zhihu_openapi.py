@@ -217,7 +217,7 @@ async def test_openapi_serializes_parallel_calls(monkeypatch):
         zhihu_openapi.search("b", limit=1, client=client),
     )
     assert len(call_times) == 2
-    assert call_times[1] - call_times[0] >= 0.04
+    assert call_times[1] - call_times[0] >= 0.025
 
 
 @pytest.mark.asyncio

@@ -956,10 +956,28 @@ function formatCommentsSection(comments) {
   const rows = comments
     .slice(0, 10)
     .map(
-      (c) => `<div class="comment-row">
+      (c) => {
+        let html = `<div class="comment-row">
       <div class="comment-meta">${escapeHtml(c.author || "匿名")} · 👍 ${Number(c.likes) || 0}</div>
-      <div class="comment-text">${escapeHtml(c.content || "")}</div>
-    </div>`
+      <div class="comment-text">${escapeHtml(c.content || "")}</div>`;
+        const replies = c.replies;
+        if (replies?.length) {
+          const top = replies.slice(0, 5);
+          html += `<details class="comment-replies"><summary>${replies.length} 条回复</summary>`;
+          html += top.map(
+            (r) => `<div class="comment-child-row">
+          <div class="comment-meta">${escapeHtml(r.author || "匿名")} · 👍 ${Number(r.likes) || 0}</div>
+          <div class="comment-text">${escapeHtml(r.content || "")}</div>
+        </div>`
+          ).join("");
+          if (replies.length > 5) {
+            html += `<div class="muted" style="padding:4px 0 0 20px">… 还有 ${replies.length - 5} 条回复</div>`;
+          }
+          html += `</details>`;
+        }
+        html += `</div>`;
+        return html;
+      }
     )
     .join("");
   return `<details class="item-section item-section-comments" open>

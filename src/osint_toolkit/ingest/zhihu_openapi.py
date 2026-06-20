@@ -188,6 +188,15 @@ async def _await_rate_slot() -> None:
         _next_request_at = now + interval
 
 
+async def _bump_rate_limit_backoff() -> None:
+    """触发限流后推后 _next_request_at，让等待中的并发任务自动冷却更久。"""
+    global _next_request_at
+    async with _rate_lock:
+        now = time.monotonic()
+        cool_sec = float(_openapi_cfg().get("min_request_interval_sec", 1.0)) * 3
+        _next_request_at = max(_next_request_at, now + cool_sec)
+
+
 def _reset_rate_limiter_for_tests() -> None:
     global _next_request_at
     _next_request_at = 0.0
@@ -242,6 +251,7 @@ async def _api_get(
                     max_retries,
                     last_rate_error,
                 )
+                await _bump_rate_limit_backoff()
                 await asyncio.sleep(delay)
                 continue
             raise last_rate_error

@@ -20,9 +20,22 @@ class BilibiliCollector(BaseCollector):
     name = "bilibili"
     _OID_CACHE_MAX = 2000
     _oid_cache: OrderedDict[str, str] = OrderedDict()
-
+    _auth_warning_shown: bool = False
+ 
     def __init__(self, client: HttpClient | None = None) -> None:
         self.client = client or HttpClient()
+
+    @classmethod
+    def _check_reply_auth(cls, code: int, message: str) -> None:
+        if cls._auth_warning_shown:
+            return
+        if code in (-101, -400, 12002) or any(kw in message for kw in ("权限", "denied", "forbidden", "login")):
+            logger.warning(
+                "Bilibili cookie may be expired (code=%s): %s. "
+                "Comments will be unavailable until cookies are re-synced at /ingest.",
+                code, message,
+            )
+            cls._auth_warning_shown = True
 
     def _search_handlers(self) -> dict[str, Any]:
         return {
@@ -377,6 +390,128 @@ class BilibiliCollector(BaseCollector):
     async def _fetch_subtitle(self, page_html: str) -> str:
         return await self._fetch_subtitle_legacy(page_html)
 
+    async def _collect_child_replies(
+        self, oid: str, root_rpid: str, comment_type: int, *, limit: int = 20
+    ) -> list[dict]:
+        collected: list[dict] = []
+        pn = 1
+        pages = 0
+        while len(collected) < limit and pages < 3:
+            api = (
+                f"https://api.bilibili.com/x/v2/reply/reply"
+                f"?type={comment_type}&oid={oid}&root={root_rpid}&ps=20&pn={pn}"
+            )
+            try:
+                resp = await self.client.get(api)
+                data = resp.json()
+                if data.get("code") not in (0, None):
+                    break
+                children = data.get("data", {}).get("replies", [])
+                if not children:
+                    break
+                for child in children:
+                    collected.append(
+                        {
+                            "author": child.get("member", {}).get("uname", ""),
+                            "content": html_to_text(child.get("content", {}).get("message", "")),
+                            "likes": child.get("like", 0),
+                            "rpid": child.get("rpid"),
+                            "parent": child.get("parent"),
+                            "is_child": True,
+                        }
+                    )
+                    if len(collected) >= limit:
+                        break
+                pn += 1
+                pages += 1
+            except Exception:  # noqa: BLE001
+                break
+        return collected[:limit]
+
+    @staticmethod
+    def _extract_comment_entry(r: dict) -> dict:
+        return {
+            "author": r.get("member", {}).get("uname", ""),
+            "content": html_to_text(r.get("content", {}).get("message", "")),
+            "likes": r.get("like", 0),
+            "rpid": r.get("rpid"),
+        }
+
+    @staticmethod
+    def _extract_child_entry(cr: dict) -> dict:
+        return {
+            "author": cr.get("member", {}).get("uname", ""),
+            "content": html_to_text(cr.get("content", {}).get("message", "")),
+            "likes": cr.get("like", 0),
+            "rpid": cr.get("rpid"),
+            "parent": cr.get("parent"),
+            "is_child": True,
+        }
+
+    async def _enrich_child_replies(
+        self, oid: str, collected: list[dict], comment_type: int
+    ) -> None:
+        from osint_toolkit.ingest import bilibili_sdk
+
+        cfg = bilibili_sdk.get_bilibili_config()
+        cld_roots = int(cfg.get("child_comment_roots", 3))
+        cld_limit = int(cfg.get("child_comment_limit", 20))
+        if cld_roots <= 0:
+            return
+        for entry in collected[:cld_roots]:
+            raw = entry.get("_raw") or {}
+            total_children = raw.get("count") or 0
+            returned_children = raw.get("rcount") or 0
+            child_replies: list[dict] = []
+            seen_crpids: set[int] = set()
+            for cr in raw.get("replies") or []:
+                cr_rpid = cr.get("rpid")
+                if cr_rpid and cr_rpid not in seen_crpids:
+                    seen_crpids.add(cr_rpid)
+                    child_replies.append(self._extract_child_entry(cr))
+            if total_children > returned_children and total_children > len(child_replies):
+                try:
+                    more = await self._collect_child_replies(
+                        oid, str(entry["rpid"]), comment_type, limit=cld_limit
+                    )
+                    for cr in more:
+                        cr_rpid = cr.get("rpid")
+                        if cr_rpid and cr_rpid not in seen_crpids:
+                            seen_crpids.add(cr_rpid)
+                            child_replies.append(cr)
+                except Exception:  # noqa: BLE001
+                    pass
+            if child_replies:
+                child_replies.sort(key=lambda c: c.get("likes", 0), reverse=True)
+                entry["replies"] = child_replies
+
+    async def _fetch_comments_for_mode(
+        self, oid: str, comment_type: int, mode: int, *, limit: int
+    ) -> list[dict]:
+        collected: list[dict] = []
+        seen: set[int] = set()
+        next_offset = 0
+        pages = 0
+        max_pages = max(4, (limit // 20) + 1)
+        while len(collected) < limit and pages < max_pages:
+            replies, next_offset = await self._fetch_reply_page(oid, next_offset, comment_type, mode=mode)
+            if not replies:
+                break
+            for r in replies:
+                rpid = r.get("rpid")
+                if rpid in seen:
+                    continue
+                seen.add(rpid)
+                entry = self._extract_comment_entry(r)
+                entry["_raw"] = r
+                collected.append(entry)
+                if len(collected) >= limit:
+                    break
+            pages += 1
+            if not next_offset:
+                break
+        return collected
+
     async def fetch_comments(self, url: str, limit: int | None = None) -> list[dict]:
         from osint_toolkit.ingest import bilibili_sdk
 
@@ -389,41 +524,33 @@ class BilibiliCollector(BaseCollector):
         comment_type = self._comment_type_from_url(url)
         if bilibili_sdk.sdk_enabled("comments"):
             try:
-                return await bilibili_sdk.fetch_comments_lazy(
+                collected = await bilibili_sdk.fetch_comments_lazy(
                     oid,
                     comment_type=comment_type,
                     limit=limit,
                 )
+                if collected and bilibili_sdk.sdk_enabled("child_comments"):
+                    await self._enrich_child_replies(oid, collected, comment_type)
+                return collected
             except Exception as exc:  # noqa: BLE001
                 logger.warning("bilibili sdk comments failed, fallback to legacy: %s", exc)
-        collected: list[dict] = []
-        seen_rpids: set[int] = set()
-        next_offset = 0
-        pages = 0
-        while len(collected) < limit and pages < max(4, (limit // 20) + 1):
-            replies, next_offset = await self._fetch_reply_page(oid, next_offset, comment_type)
-            if not replies:
+        all_comments: list[dict] = []
+        seen: set[int] = set()
+        for mode in (3, 2):
+            if len(all_comments) >= limit:
                 break
-            for r in replies:
-                rpid = r.get("rpid")
-                if rpid in seen_rpids:
-                    continue
-                seen_rpids.add(rpid)
-                collected.append(
-                    {
-                        "author": r.get("member", {}).get("uname", ""),
-                        "content": html_to_text(r.get("content", {}).get("message", "")),
-                        "likes": r.get("like", 0),
-                        "rpid": rpid,
-                    }
-                )
-                if len(collected) >= limit:
-                    break
-            pages += 1
-            if not next_offset:
-                break
-        collected.sort(key=lambda c: c.get("likes", 0), reverse=True)
-        return collected[:limit]
+            batch = await self._fetch_comments_for_mode(oid, comment_type, mode, limit=limit)
+            for entry in batch:
+                rpid = entry.get("rpid")
+                if rpid and rpid not in seen:
+                    seen.add(rpid)
+                    all_comments.append(entry)
+        all_comments.sort(key=lambda c: c.get("likes", 0), reverse=True)
+        all_comments = all_comments[:limit]
+        await self._enrich_child_replies(oid, all_comments, comment_type)
+        for entry in all_comments:
+            entry.pop("_raw", None)
+        return all_comments
 
     def _comment_type_from_url(self, url: str) -> int:
         if re.search(r"(?:/read/)?cv\d+", url, re.I):
@@ -433,13 +560,13 @@ class BilibiliCollector(BaseCollector):
         return 1
 
     async def _fetch_reply_page(
-        self, oid: str, next_offset: int, comment_type: int = 1
-    ) -> tuple[list[dict], int]:
+        self, oid: str, next_offset: int | str, comment_type: int = 1, mode: int = 3
+    ) -> tuple[list[dict], int | str]:
         base = "https://api.bilibili.com/x/v2/reply/wbi/main"
         params: dict[str, Any] = {
             "type": comment_type,
             "oid": oid,
-            "mode": 3,
+            "mode": mode,
             "plat": 1,
         }
         if next_offset:
@@ -448,12 +575,16 @@ class BilibiliCollector(BaseCollector):
             from osint_toolkit.ingest.bilibili_wbi import wbi_get
 
             data = await wbi_get(self.client, base, params)
-            if data.get("code") not in (0, None):
-                raise RuntimeError(data.get("message") or "wbi reply failed")
+            code = data.get("code")
+            if code not in (0, None):
+                msg = data.get("message") or "wbi reply failed"
+                self._check_reply_auth(code or 0, msg)
+                raise RuntimeError(msg)
             payload = data.get("data") or {}
             replies = payload.get("replies") or []
             cursor = payload.get("cursor") or {}
-            return replies, int(cursor.get("pagination_reply", {}).get("next_offset") or 0)
+            next_off = cursor.get("pagination_reply", {}).get("next_offset") or 0
+            return replies, next_off
         except Exception as exc:  # noqa: BLE001
             logger.warning("bilibili wbi reply failed, fallback to legacy: %s", exc)
         api = (
@@ -462,13 +593,17 @@ class BilibiliCollector(BaseCollector):
         try:
             resp = await self.client.get(api)
             data = resp.json()
-            if data.get("code") not in (0, None):
+            legacy_code = data.get("code")
+            if legacy_code not in (0, None):
+                legacy_msg = data.get("message") or "legacy reply failed"
+                self._check_reply_auth(legacy_code or 0, legacy_msg)
+                logger.warning("bilibili legacy reply also failed (code=%s): %s", legacy_code, legacy_msg)
                 return [], 0
             payload = data.get("data") or {}
             cursor = payload.get("cursor") or {}
             pagination = cursor.get("pagination_reply") or {}
-            next_offset = int(pagination.get("next_offset") or 0)
-            return payload.get("replies") or [], next_offset
+            next_off = pagination.get("next_offset") or 0
+            return payload.get("replies") or [], next_off
         except Exception as exc:  # noqa: BLE001
             logger.warning("bilibili legacy reply failed: %s", exc)
             return [], 0

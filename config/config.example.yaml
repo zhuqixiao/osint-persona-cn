@@ -68,6 +68,7 @@ bilibili:
   features:
     search: true
     comments: true
+    child_comments: true     # 递归抓取热评的子回复
     subtitle: true
     danmaku: true
     ingest_history: true

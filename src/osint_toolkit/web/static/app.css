@@ -2221,6 +2221,34 @@ textarea { min-height: 100px; resize: vertical; font-family: inherit; }
   word-break: break-word;
 }
 
+.item-card .comment-replies {
+  margin: 0.35rem 0 0 1.1rem;
+  border-left: 2px solid var(--border);
+  padding-left: 0.55rem;
+}
+
+.item-card .comment-replies summary {
+  font-size: 0.78rem;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0.2rem 0;
+}
+
+.item-card .comment-child-row {
+  padding: 0.3rem 0.4rem;
+  border-radius: var(--radius-sm);
+  margin-top: 0.2rem;
+  background: var(--bg-subtle);
+}
+
+.item-card .comment-child-row .comment-meta {
+  font-size: 0.72rem;
+}
+
+.item-card .comment-child-row .comment-text {
+  font-size: 0.82rem;
+}
+
 .item-card .actions .btn.is-active,
 .item-card .sim-feedback .btn.is-active {
   background: var(--accent-soft);

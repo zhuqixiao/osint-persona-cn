@@ -32,6 +32,7 @@ def get_bilibili_config() -> dict[str, Any]:
         "features": {
             "search": True,
             "comments": True,
+            "child_comments": True,
             "subtitle": True,
             "danmaku": True,
             "ingest_history": True,
@@ -41,6 +42,8 @@ def get_bilibili_config() -> dict[str, Any]:
             "my_comments": True,
         },
         "comments_fetch_limit": 60,
+        "child_comment_roots": 10,
+        "child_comment_limit": 20,
         "danmaku_max_lines": 800,
         "subtitle_prefer": "ai_first",
         "search": {
