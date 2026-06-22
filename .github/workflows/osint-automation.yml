@@ -1,0 +1,75 @@
+name: OSINT Persona CN - 自动化情报收集
+
+# 触发条件：每天北京时间 8:00 运行，也支持手动触发
+on:
+  schedule:
+    - cron: '0 0 * * *'  # UTC 0点 = 北京时间 8点
+  workflow_dispatch:      # 允许你随时在 GitHub 页面点击运行
+
+jobs:
+  collect-intel:
+    runs-on: ubuntu-latest
+    # 设置环境变量，供所有步骤使用
+    env:
+      # 从 GitHub Secrets 读取你配置的 API 密钥（如果没有，可以留空，但相关功能会受限）
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      # 设置数据存储目录（本项目使用 ~/.osint，在 Actions 中对应 /home/runner/.osint）
+      OSINT_DATA_DIR: /home/runner/.osint
+
+    steps:
+      # 1. 拉取代码
+      - name: 拉取项目代码
+        uses: actions/checkout@v4
+
+      # 2. 设置 Python 环境（项目推荐 3.12）
+      - name: 安装 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 3. 安装项目依赖（包括核心、Web、B站扩展）
+      - name: 安装项目依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,web,bilibili]"
+
+      # 4. 创建必要目录并恢复持久化数据（关键步骤）
+      - name: 准备数据目录
+        run: |
+          mkdir -p $OSINT_DATA_DIR
+          mkdir -p $OSINT_DATA_DIR/runs
+
+      # 5. （可选）备份与恢复：从之前的运行中恢复知识库，避免每次从零开始
+      #    前提：你需要在 GitHub Actions 的 Settings -> Secrets and variables -> Actions 中
+      #    添加一个名为 OSINT_DATA_BACKUP 的 secret，内容为 base64 编码的 .osint 目录压缩包。
+      - name: 恢复持久化数据（如有备份）
+        run: |
+          if [ -n "${{ secrets.OSINT_DATA_BACKUP }}" ]; then
+            echo "发现备份数据，正在恢复..."
+            echo "${{ secrets.OSINT_DATA_BACKUP }}" | base64 --decode > /tmp/osint_backup.tar.gz
+            tar -xzf /tmp/osint_backup.tar.gz -C /home/runner/
+          else
+            echo "未配置备份数据，将全新运行。"
+          fi
+
+      # 6. 执行核心任务：搜罗并生成报告（这里以搜索 'AI大模型' 为例）
+      - name: 执行主题搜罗
+        run: |
+          # 使用 osint search 命令，并通过 --digest 生成 AI 摘要报告
+          # 如果 DEEPSEEK_API_KEY 未配置，--digest 会失败，但搜索本身会成功
+          osint search "AI大模型 行业动态" --sources zhihu,web,weixin --digest --trace
+
+      # 7. 备份本次运行的数据，供下次使用
+      - name: 备份持久化数据
+        run: |
+          tar -czf /tmp/osint_data_backup.tar.gz -C /home/runner/ .osint
+          echo "数据备份已生成，请前往 Actions 页面下载此 Job 的 Artifacts 获取。"
+
+      # 8. 上传本次运行的报告和完整数据包（作为 Actions 的 Artifacts 保存）
+      - name: 上传情报报告与数据
+        uses: actions/upload-artifact@v4
+        with:
+          name: osint-intel-report-${{ github.run_number }}
+          path: |
+            /home/runner/.osint/runs/
+            /tmp/osint_data_backup.tar.gz
