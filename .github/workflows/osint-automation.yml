@@ -1,16 +1,16 @@
-name: OSINT Persona CN - 稳健搜罗流程
+name: OSINT Persona CN - 精准政府源搜罗
 
 # 触发方式：支持手动触发，并允许你每次输入不同的搜索主题
 on:
   workflow_dispatch:
     inputs:
       search_topic:
-        description: '请输入要搜索的主题'
+        description: '请输入要搜索的主题（建议使用引号括起来的完整短语，例如："人工智能 产业政策 2026"）'
         required: true
-        default: '人工智能 行业政策 2026'
+        default: '"人工智能 产业政策 2026"'
 
 jobs:
-  stable-search:
+  precise-gov-search:
     runs-on: ubuntu-latest
     env:
       # 从 Secrets 读取密钥（如果没有配置，留空即可，配合 --no-ai 使用）
@@ -45,21 +45,16 @@ jobs:
         run: |
           osint doctor
 
-      # 6. 【新增】查看 search 命令的帮助文档（方便你以后调试）
-      - name: 查看 search 命令帮助
-        run: |
-          osint search --help
-
-      # 7. 执行最简搜索测试（只使用确认有效的 --no-ai 参数）
-      - name: 执行最简搜索
+      # 6. 执行精准搜索（仅限政府源，强制禁用AI）
+      - name: 执行精准搜索
         run: |
           echo "开始搜索主题：${{ github.event.inputs.search_topic }}"
-          osint search "${{ github.event.inputs.search_topic }}" --no-ai
+          osint search ${{ github.event.inputs.search_topic }} --sources gov --limit 15 --trace --no-ai
 
-      # 8. 上传原始数据与日志
+      # 7. 上传原始数据与日志
       - name: 上传运行日志与数据
         uses: actions/upload-artifact@v4
         with:
-          name: osint-stable-run-${{ github.run_number }}
+          name: osint-gov-run-${{ github.run_number }}
           path: |
             /home/runner/.osint/runs/
