@@ -1,4 +1,4 @@
-name: OSINT Persona CN - 优化搜罗流程
+name: OSINT Persona CN - 稳健搜罗流程
 
 # 触发方式：支持手动触发，并允许你每次输入不同的搜索主题
 on:
@@ -8,13 +8,9 @@ on:
         description: '请输入要搜索的主题'
         required: true
         default: '人工智能 行业政策 2026'
-      search_limit:
-        description: '每个信源获取的结果数量'
-        required: true
-        default: '10'
 
 jobs:
-  optimized-search:
+  stable-search:
     runs-on: ubuntu-latest
     env:
       # 从 Secrets 读取密钥（如果没有配置，留空即可，配合 --no-ai 使用）
@@ -49,21 +45,21 @@ jobs:
         run: |
           osint doctor
 
-      # 6. 执行优化后的搜索（核心修改点）
-      - name: 执行优化搜索
+      # 6. 【新增】查看 search 命令的帮助文档（方便你以后调试）
+      - name: 查看 search 命令帮助
+        run: |
+          osint search --help
+
+      # 7. 执行最简搜索测试（只使用确认有效的 --no-ai 参数）
+      - name: 执行最简搜索
         run: |
           echo "开始搜索主题：${{ github.event.inputs.search_topic }}"
-          osint search "${{ github.event.inputs.search_topic }}" \
-            --sources gov,baidu,zhihu \
-            --limit ${{ github.event.inputs.search_limit }} \
-            --delay 5 \
-            --trace \
-            --no-ai
+          osint search "${{ github.event.inputs.search_topic }}" --no-ai
 
-      # 7. 上传原始数据与日志
+      # 8. 上传原始数据与日志
       - name: 上传运行日志与数据
         uses: actions/upload-artifact@v4
         with:
-          name: osint-optimized-run-${{ github.run_number }}
+          name: osint-stable-run-${{ github.run_number }}
           path: |
             /home/runner/.osint/runs/
