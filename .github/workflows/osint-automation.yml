@@ -46,7 +46,7 @@ jobs:
       - name: 执行基础搜索测试
         run: |
           echo "开始执行基础搜索..."
-          osint search "人工智能" --sources web --limit 3 --trace
+          osint search "人工智能" --sources web --limit 3 --trace --no-ai
 
       # 7. 上传本次运行的日志和原始数据（方便你查看结果）
       - name: 上传运行日志与数据
